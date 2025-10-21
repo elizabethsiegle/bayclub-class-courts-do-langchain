@@ -36,74 +36,31 @@ class IgniteBooking:
             self.playwright.stop()
 
     def login(self, user_name='user_name', user_password='password'):
-        """Login to Bay Club with provided credentials"""
+        """Login to Bay Club"""
         try:
-            # Wait for and fill username
-            logging.info("Looking for username field...")
-            username_field = self.page.wait_for_selector("#username", timeout=15000)
-            username_field.fill(user_name)
-            logging.info("Username filled")
+            self.page.wait_for_selector("#username", timeout=15000).fill(user_name)
+            self.page.wait_for_selector("#password", timeout=15000).fill(user_password)
             
-            # Wait for and fill password
-            logging.info("Looking for password field...")
-            password_field = self.page.wait_for_selector("#password", timeout=15000)
-            password_field.fill(user_password)
-            logging.info("Password filled")
-            
-            # Try multiple possible login button selectors
-            login_button = None
             login_selectors = [
                 "xpath=/html/body/app-root/div/app-login/div/app-login-connect/div[1]/div/div/div/form/button",
                 "button[type='submit']",
-                "input[type='submit']",
-                "button:has-text('Login')",
-                "button:has-text('Sign In')"
+                "button:has-text('Login')"
             ]
             
             for selector in login_selectors:
                 try:
-                    logging.info(f"Trying login button selector: {selector}")
-                    login_button = self.page.wait_for_selector(selector, timeout=5000)
+                    self.page.wait_for_selector(selector, timeout=5000).click()
                     break
                 except PlaywrightTimeoutError:
                     continue
             
-            if not login_button:
-                # Take screenshot for debugging
-                self.page.screenshot(path="login_debug.png")
-                raise PlaywrightTimeoutError("Could not find login button with any selector")
-            
-            logging.info("Clicking login button...")
-            login_button.click()
-            
-            # Wait for page to load after login - try multiple approaches
-            logging.info("Waiting for page to load after login...")
             try:
-                # Wait for either network idle or a specific element that indicates successful login
                 self.page.wait_for_load_state("networkidle", timeout=10000)
-                logging.info("Page loaded (networkidle)")
             except PlaywrightTimeoutError:
-                logging.info("Networkidle timeout, trying to wait for specific elements...")
-                try:
-                    # Look for elements that indicate successful login
-                    self.page.wait_for_selector("text=Classes", timeout=10000)
-                    logging.info("Found 'Classes' text - login successful")
-                except PlaywrightTimeoutError:
-                    try:
-                        # Try waiting for any class-related element
-                        self.page.wait_for_selector("[class*='class']", timeout=5000)
-                        logging.info("Found class-related element - login successful")
-                    except PlaywrightTimeoutError:
-                        logging.warning("Could not confirm login success, but continuing...")
+                self.page.wait_for_selector("text=Classes", timeout=10000)
             
-            # Small delay to ensure page is fully loaded
             time.sleep(2)
-            
-            # Select Bay Club San Francisco location
             self.select_location("San Francisco")
-            
-            
-            logging.info("Login process completed")
             
         except PlaywrightTimeoutError as e:
             logging.error(f"Login failed: {e}")
@@ -111,281 +68,74 @@ class IgniteBooking:
             raise
 
     def select_location(self, location_name="San Francisco"):
-        """Select the Bay Club location from the dropdown"""
+        """Select Bay Club San Francisco location"""
         try:
-            logging.info(f"Looking for location dropdown for {location_name}...")
+            # Check if already on San Francisco
+            elements = self.page.query_selector_all("//*[contains(text(), 'Bay Club San Francisco')]")
+            if any("Bay Club" in el.text_content() and "San Francisco" in el.text_content() for el in elements):
+                return
             
-            # First, check if we're already on the correct location
-            current_location_selectors = [
-                "//*[contains(text(), 'San Francisco')]",
-                "//*[contains(text(), 'Bay Club San Francisco')]",
-                "//*[contains(text(), 'Club: San Francisco')]"
-            ]
-            
-            for selector in current_location_selectors:
+            # Open dropdown
+            for selector in ["[dropdown]", ".btn-group .select-border"]:
                 try:
-                    elements = self.page.query_selector_all(selector)
-                    for element in elements:
-                        text = element.text_content().strip()
-                        if "San Francisco" in text and "Bay Club" in text:
-                            logging.info(f"Already on San Francisco location: {text}")
-                            return True
-                except Exception as e:
-                    logging.info(f"Location check selector {selector} failed: {e}")
-                    continue
-            
-            # If not already on San Francisco, try to open the dropdown
-            dropdown_selectors = [
-                "[dropdown]",
-                ".btn-group .select-border",
-                ".clickable.select-border",
-                "span[dropdowntoggle]"
-            ]
-            
-            dropdown_opened = False
-            for selector in dropdown_selectors:
-                try:
-                    logging.info(f"Trying to open dropdown with selector: {selector}")
-                    dropdown = self.page.wait_for_selector(selector, timeout=5000)
-                    dropdown.click()
-                    time.sleep(1)  # Wait for dropdown to open
-                    dropdown_opened = True
-                    logging.info("Dropdown opened successfully")
+                    self.page.wait_for_selector(selector, timeout=5000).click()
+                    time.sleep(1)
                     break
-                except Exception as e:
-                    logging.info(f"Dropdown selector {selector} failed: {e}")
+                except:
                     continue
             
-            if not dropdown_opened:
-                logging.warning("Could not open location dropdown - might already be on San Francisco")
-                # Check if we can find San Francisco text on the page
-                sf_elements = self.page.query_selector_all("//*[contains(text(), 'San Francisco')]")
-                if sf_elements:
-                    logging.info("Found San Francisco text on page - assuming correct location")
-                    return True
-                else:
-                    # Check for any Bay Club location text
-                    bay_club_elements = self.page.query_selector_all("//*[contains(text(), 'Bay Club')]")
-                    if bay_club_elements:
-                        for element in bay_club_elements:
-                            text = element.text_content().strip()
-                            logging.info(f"Found Bay Club text: {text}")
-                        logging.info("Found Bay Club text - assuming correct location")
-                        return True
-                    else:
-                        logging.warning("No location text found - continuing anyway")
-                        return False
-            
-            # Step 1: Click on the "San Francisco" span to expand the submenu
-            logging.info("Step 1: Looking for San Francisco span to expand submenu...")
-            sf_span_selectors = [
-                "//li[contains(@class, 'ml-2')]//span[text()='San Francisco']",
-                "//span[text()='San Francisco']",
-                "text=San Francisco"
-            ]
-            
-            sf_span_element = None
-            for selector in sf_span_selectors:
+            # Click San Francisco span
+            for selector in ["//span[text()='San Francisco']", "text=San Francisco"]:
                 try:
-                    logging.info(f"Looking for SF span with selector: {selector}")
                     elements = self.page.query_selector_all(selector)
-                    if elements:
-                        for element in elements:
-                            text = element.text_content().strip()
-                            if text == 'San Francisco':
-                                sf_span_element = element
-                                logging.info(f"Found San Francisco span: '{text}'")
-                                break
-                        if sf_span_element:
+                    for el in elements:
+                        if el.text_content().strip() == 'San Francisco':
+                            el.click()
+                            time.sleep(1)
                             break
-                except Exception as e:
-                    logging.info(f"SF span selector {selector} failed: {e}")
+                    break
+                except:
                     continue
             
-            if not sf_span_element:
-                logging.warning("Could not find San Francisco span in dropdown")
-                self.page.screenshot(path="location_sf_span_debug.png")
-                return
-            
-            # Click on the San Francisco span to expand submenu
-            try:
-                logging.info("Clicking on San Francisco span to expand submenu...")
-                # Try different click methods for the span
-                try:
-                    sf_span_element.click()
-                    logging.info("Regular click successful")
-                except Exception as e1:
-                    logging.info(f"Regular click failed: {e1}, trying force click...")
+            # Click San Francisco option
+            elements = self.page.query_selector_all("//div[text()='San Francisco']")
+            for el in elements:
+                if el.text_content().strip() == 'San Francisco':
                     try:
-                        sf_span_element.click(force=True)
-                        logging.info("Force click successful")
-                    except Exception as e2:
-                        logging.info(f"Force click failed: {e2}, trying JavaScript click...")
-                        self.page.evaluate("element => element.click()", sf_span_element)
-                        logging.info("JavaScript click successful")
-                
-                time.sleep(1)  # Wait for submenu to expand
-                logging.info("San Francisco submenu expanded")
-            except Exception as e:
-                logging.warning(f"Failed to click San Francisco span: {e}")
-                return
-            
-            # Step 2: Click on the specific San Francisco option in the submenu
-            logging.info("Step 2: Looking for San Francisco option in submenu...")
-            sf_option_selectors = [
-                "//div[@class='w-100 black' and text()='San Francisco']",
-                "//div[contains(@class, 'w-100') and contains(@class, 'black') and text()='San Francisco']",
-                "//*[contains(@class, 'w-100') and text()='San Francisco']",
-                "//*[text()='San Francisco' and contains(@class, 'black')]"
-            ]
-            
-            sf_option_element = None
-            for selector in sf_option_selectors:
-                try:
-                    logging.info(f"Looking for SF option with selector: {selector}")
-                    elements = self.page.query_selector_all(selector)
-                    if elements:
-                        logging.info(f"Found {len(elements)} elements with this selector")
-                        for i, element in enumerate(elements):
-                            text = element.text_content().strip()
-                            class_attr = element.get_attribute('class') or ''
-                            logging.info(f"Element {i}: text='{text}', class='{class_attr}'")
-                            # Make sure it's exactly "San Francisco" and not "South San Francisco"
-                            if text == 'San Francisco' and 'w-100' in class_attr:
-                                sf_option_element = element
-                                logging.info(f"Found exact San Francisco option: '{text}'")
-                                break
-                        if sf_option_element:
-                            break
-                except Exception as e:
-                    logging.info(f"SF option selector {selector} failed: {e}")
-                    continue
-            
-            if not sf_option_element:
-                logging.warning("Could not find San Francisco option in submenu")
-                self.page.screenshot(path="location_sf_option_debug.png")
-                return
-            
-            # Click on the San Francisco option
-            try:
-                logging.info("Clicking on San Francisco option in submenu...")
-                sf_option_element.click()
-                time.sleep(2)  # Wait for selection to take effect
-                logging.info("San Francisco location selected successfully")
-            except Exception as e:
-                logging.info(f"Regular click failed: {e}, trying force click...")
-                try:
-                    # Try force click for hidden elements
-                    sf_option_element.click(force=True)
+                        el.click()
+                    except:
+                        self.page.evaluate("element => element.click()", el)
                     time.sleep(2)
-                    logging.info("San Francisco location selected via force click")
-                except Exception as e2:
-                    logging.info(f"Force click failed: {e2}, trying JavaScript click...")
-                    try:
-                        # Try JavaScript click as final fallback
-                        self.page.evaluate("element => element.click()", sf_option_element)
-                        time.sleep(2)
-                        logging.info("San Francisco location selected via JavaScript")
-                    except Exception as e3:
-                        logging.warning(f"All click methods failed: {e3}")
-                        return
-            
+                    break
         except Exception as e:
             logging.warning(f"Location selection failed: {e}")
-            self.page.screenshot(path="location_error.png")
 
     def select_day(self, day_of_week, logging):
-        """Select the appropriate day based on current day of week"""
-        # Map day numbers to day codes (0=Monday, 6=Sunday)
-        day_codes = {
-            0: "Mo",  # Monday
-            1: "Tu",  # Tuesday
-            2: "We",  # Wednesday
-            3: "Th",  # Thursday
-            4: "Fr",  # Friday
-            5: "Sa",  # Saturday
-            6: "Su"   # Sunday
-        }
-        
-        day_names = {
-            0: "Monday",
-            1: "Tuesday", 
-            2: "Wednesday",
-            3: "Thursday",
-            4: "Friday",
-            5: "Saturday",
-            6: "Sunday"
-        }
-        
-        # Get the day code for the current day
+        """Select day of week"""
+        day_codes = {0: "Mo", 1: "Tu", 2: "We", 3: "Th", 4: "Fr", 5: "Sa", 6: "Su"}
+        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
         day_code = day_codes.get(day_of_week, "Mo")
-        day_name = day_names.get(day_of_week, "Monday")
+        day_name = day_names[day_of_week] if 0 <= day_of_week < 7 else "Monday"
         
-        logging.info(f"Today is {day_name}, looking for Ignite classes...")
+        logging.info(f"Today is {day_name}, looking for classes...")
         
-        # Try to find and click on the day selector
         try:
-            # Look for day selector elements - use simpler patterns based on what we found
-            day_selectors = [
-                f"//*[text()='{day_code}']",  # Exact match for day code
-                f"//*[text()='{day_name}']",  # Exact match for day name
-                f"//*[contains(text(), '{day_code}') and string-length(text()) < 10]",  # Short text containing day code
-                f"//*[contains(text(), '{day_name}') and string-length(text()) < 20]",  # Short text containing day name
-                f"//button[contains(text(), '{day_code}')]",
-                f"//button[contains(text(), '{day_name}')]",
-                f"//div[contains(text(), '{day_code}')]",
-                f"//div[contains(text(), '{day_name}')]",
-                f"//span[contains(text(), '{day_code}')]",
-                f"//span[contains(text(), '{day_name}')]"
-            ]
-            
-            day_element = None
-            for selector in day_selectors:
-                try:
-                    logging.info(f"Looking for day selector: {selector}")
-                    elements = self.page.query_selector_all(selector)
-                    if elements:
-                        for element in elements:
-                            text = element.text_content().strip()
-                            # Make sure it's not CSS content and is actually clickable
-                            if (day_name in text or day_code in text) and len(text) < 100 and not text.startswith(':'):
-                                # Check if element is visible and clickable
-                                try:
-                                    is_visible = element.is_visible()
-                                    is_enabled = element.is_enabled()
-                                    if is_visible and is_enabled:
-                                        day_element = element
-                                        logging.info(f"Found clickable day element: '{text}'")
-                                        break
-                                except:
-                                    # If we can't check visibility, try it anyway
-                                    day_element = element
-                                    logging.info(f"Found day element: '{text}'")
-                                    break
-                        if day_element:
-                            break
-                except Exception as e:
-                    logging.info(f"Day selector {selector} failed: {e}")
-                    continue
-            
-            if day_element:
-                try:
-                    day_element.click()
-                    logging.info(f"Clicked on {day_name} day selector")
-                    # Wait for page to update
-                    import time
-                    time.sleep(2)
-                    return True
-                except Exception as e:
-                    logging.info(f"Failed to click day selector: {e}")
-                    return True  # Continue anyway
-            else:
-                logging.info(f"Could not find {day_name} day selector, continuing with current view")
-                return True
-                
-        except Exception as e:
-            logging.info(f"Error in day selection: {e}")
-            return True  # Continue anyway
+            for selector in [f"//*[text()='{day_code}']", f"//*[text()='{day_name}']"]:
+                elements = self.page.query_selector_all(selector)
+                for element in elements:
+                    text = element.text_content().strip()
+                    if day_code in text or day_name in text:
+                        try:
+                            if element.is_visible() and element.is_enabled():
+                                element.click()
+                                logging.info(f"Clicked on {day_name} day selector")
+                                time.sleep(2)
+                                return True
+                        except:
+                            pass
+        except:
+            pass
+        return True
 
     def select_ignite(self, day_of_week: int, time_of_week: str = "7:00", meridiem: str = "AM"):
         """
@@ -584,6 +334,163 @@ class IgniteBooking:
             logging.error(f"Failed to confirm booking: {e}")
             self.page.screenshot(path="confirm_button_error.png")
             raise
+
+    def search_all_classes(self, day_of_week: int):
+        """Search for all available classes on a given day"""
+        try:
+            self.select_day(day_of_week, logging)
+            time.sleep(3)
+            
+            # Find class elements
+            class_elements = self.page.query_selector_all("div.size-16.text-uppercase")
+            if not class_elements:
+                return []
+            
+            logging.info(f"Processing {len(class_elements)} classes...")
+            
+            classes_found = []
+            seen_classes = set()
+            import re
+            
+            for element in class_elements:
+                try:
+                    class_name = element.text_content().strip()
+                    if not class_name or len(class_name) > 100 or not any(c.isupper() for c in class_name):
+                        continue
+                    
+                    parent = element.evaluate_handle("""element => {
+                        let current = element;
+                        for (let i = 0; i < 10; i++) {
+                            if (!current) break;
+                            const classes = current.className || '';
+                            if (classes.includes('class') || classes.includes('card')) return current;
+                            current = current.parentElement;
+                        }
+                        return element.parentElement.parentElement.parentElement || element.parentElement;
+                    }""")
+                    
+                    if not parent:
+                        continue
+                        
+                    parent_text = parent.evaluate("el => el.textContent")
+                    
+                    # Extract time (start time from range)
+                    time_range_match = re.search(r'(\d{1,2}:\d{2})\s*-\s*\d{1,2}:\d{2}\s*(AM|PM)', parent_text, re.IGNORECASE)
+                    if time_range_match:
+                        class_time = f"{time_range_match.group(1)} {time_range_match.group(2).upper()}"
+                    else:
+                        time_match = re.search(r'(\d{1,2}:\d{2})\s*(AM|PM)', parent_text, re.IGNORECASE)
+                        class_time = f"{time_match.group(1)} {time_match.group(2).upper()}" if time_match else "Time not found"
+                    
+                    # Avoid duplicates
+                    unique_key = f"{class_name}_{class_time}"
+                    if unique_key in seen_classes:
+                        continue
+                    seen_classes.add(unique_key)
+                    
+                    # Extract instructor
+                    instructor_match = re.search(r'with\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', parent_text)
+                    instructor = instructor_match.group(1) if instructor_match else "Unknown"
+                    
+                    # Determine availability
+                    lower_text = parent_text.lower()
+                    if 'waitlist' in lower_text:
+                        availability = "Waitlist"
+                    elif 'book' in lower_text:
+                        availability = "Available"
+                    else:
+                        availability = "Full"
+                    
+                    classes_found.append({
+                        'class_name': class_name,
+                        'time': class_time,
+                        'instructor': instructor,
+                        'availability': availability,
+                        'element': element
+                    })
+                    
+                except Exception as e:
+                    continue
+            
+            # Sort by time
+            def parse_time(class_info):
+                time_str = class_info['time']
+                if time_str == "Time not found":
+                    return 9999
+                try:
+                    match = re.match(r'(\d{1,2}):(\d{2})\s*(AM|PM)', time_str, re.IGNORECASE)
+                    if match:
+                        hour = int(match.group(1))
+                        minute = int(match.group(2))
+                        if match.group(3).upper() == 'PM' and hour != 12:
+                            hour += 12
+                        elif match.group(3).upper() == 'AM' and hour == 12:
+                            hour = 0
+                        return hour * 60 + minute
+                except:
+                    pass
+                return 9999
+            
+            classes_found.sort(key=parse_time)
+            logging.info(f"Found {len(classes_found)} classes")
+            return classes_found
+            
+        except Exception as e:
+            logging.error(f"Failed to search classes: {e}")
+            return []
+
+    def book_class(self, class_name: str, day_of_week: int, time_str: str):
+        """Book any class by name and time"""
+        try:
+            logging.info(f"Attempting to book {class_name} at {time_str}")
+            
+            all_classes = self.search_all_classes(day_of_week)
+            
+            # Find matching class (flexible name matching)
+            import re
+            target_class = None
+            for cls in all_classes:
+                name_norm = re.sub(r'[^a-z0-9\s]', '', class_name.lower()).strip()
+                cls_norm = re.sub(r'[^a-z0-9\s]', '', cls['class_name'].lower()).strip()
+                if (name_norm in cls_norm or cls_norm in name_norm) and time_str.lower() in cls['time'].lower():
+                    target_class = cls
+                    break
+            
+            if not target_class:
+                logging.error(f"Could not find {class_name} at {time_str}")
+                return False
+            
+            # Click class element
+            try:
+                target_class['element'].click()
+                time.sleep(2)
+            except:
+                parent = target_class['element'].evaluate_handle("element => element.closest('div[class*=\"card\"]') || element.parentElement")
+                if parent:
+                    parent.evaluate("el => el.click()")
+                    time.sleep(2)
+            
+            # Try booking
+            try:
+                self.book_ignite()
+                time.sleep(1)
+                self.confirm_ignite()
+                logging.info(f"Successfully booked {class_name}!")
+                return True
+            except:
+                # Try waitlist
+                try:
+                    self.add_to_waitlist_ignite()
+                    time.sleep(1)
+                    self.confirm_ignite()
+                    logging.info(f"Added to waitlist for {class_name}")
+                    return True
+                except:
+                    return False
+                    
+        except Exception as e:
+            logging.error(f"Failed to book: {e}")
+            return False
 
     def save_screenshot(self, filename='screen.png', enabled=True, delay=0):
         """Save a screenshot of the current page"""

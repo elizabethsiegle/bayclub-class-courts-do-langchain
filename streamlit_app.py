@@ -3,6 +3,7 @@ import os
 import datetime
 import logging
 import json
+import subprocess
 from typing import Dict, List, Any
 
 # Import Gradient LLM
@@ -10,14 +11,71 @@ from langchain_gradient import ChatGradient
 from config import Config
 
 # Import our booking functions
-from main import book_ignite_class, check_ignite_class
+from main import book_ignite_class, book_any_class, check_ignite_class
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- Streamlit App Setup ---
-st.set_page_config(page_title="Bay Club Booking Assistant", page_icon="🏋️‍♀️")
+st.set_page_config(
+    page_title="Bay Club SF Class Booking Assistant", 
+    page_icon="🏋️‍♀️",
+    initial_sidebar_state="collapsed",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': None
+    }
+)
+
+# Custom CSS to hide settings and add sticky footer
+st.markdown("""
+<style>
+    /* Hide the settings menu */
+    .stDeployButton {display:none;}
+    footer {visibility: hidden;}
+    .stApp > header {visibility: hidden;}
+    
+    /* Hide the hamburger menu */
+    #MainMenu {visibility: hidden;}
+    
+    /* Custom sticky footer */
+    .main .block-container {
+        padding-bottom: 5rem;
+    }
+    
+    .footer {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background-color: #0e1117;
+        color: white;
+        text-align: center;
+        padding: 10px 0;
+        border-top: 1px solid #262730;
+        z-index: 1000;
+        font-size: 14px;
+    }
+    
+    .footer a {
+        color: #ff6b6b;
+        text-decoration: none;
+        font-weight: 500;
+    }
+    
+    .footer a:hover {
+        color: #ff5252;
+        text-decoration: underline;
+    }
+    
+    /* Ensure content doesn't get hidden behind footer */
+    .stApp {
+        margin-bottom: 60px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Initialize session state variables
 if "messages" not in st.session_state:
@@ -34,6 +92,8 @@ if "current_date" not in st.session_state:
     st.session_state.current_date = datetime.datetime.now().strftime("%Y-%m-%d")
 if "last_mentioned_date" not in st.session_state:
     st.session_state.last_mentioned_date = None
+if "last_class_list" not in st.session_state:
+    st.session_state.last_class_list = []
 
 # Initialize Gradient LLM
 @st.cache_resource
@@ -50,16 +110,20 @@ def get_llm():
 
 def get_system_prompt():
     """Get the system prompt for the AI assistant"""
-    return """You are a helpful Bay Club booking assistant. You help users book Ignite classes at Bay Club San Francisco.
+    return """You are a helpful Bay Club booking assistant. You help users book classes at Bay Club San Francisco.
 
 You have access to these tools:
-1. check_ignite_class(username, password, date, headless=True) - Check available classes for a specific date
-2. book_ignite_class(username, password, date, time, meridiem, headless=True) - Book a class for a specific date and time
+1. check_ignite_class(username, password, date, headless=True) - Check available classes for a specific date (includes ALL class types: Ignite, Pilates, Riide, Cardio Hip Hop, Yoga, and more)
+2. book_any_class(username, password, class_name, date, time, meridiem, headless=True) - Book ANY class type for a specific date and time
 
 When users ask about:
 - "Check classes for [date]" or "What classes are available on [date]" → Use check_ignite_class()
-- "Book a class for [date] at [time]" or "Book me a [time] class on [date]" → Use book_ignite_class()
+- "Book a [class name] class for [date] at [time]" → Use book_any_class() with the specific class name
+- "Book me a [time] class on [date]" → Use book_any_class() (defaults to Ignite if no class type specified)
 - "Show me available times" → Use check_ignite_class() for today or ask for a specific date
+- "What Pilates/Riide/Cardio Hip Hop classes are available?" → Use check_ignite_class()
+
+Supported class types: Ignite, Pilates, Riide, Cardio Hip Hop, Yoga, Spin, Barre, and more
 
 Date format: YYYY-MM-DD (e.g., "2025-10-22")
 Time format: HH:MM (e.g., "7:00", "6:30", "8:00")
@@ -67,7 +131,7 @@ Meridiem: "AM" or "PM"
 
 Always be helpful, friendly, and informative. When using tools, explain what you're doing and show the results clearly.
 
-Remember: Bay Club Ignite classes are offered every day for 50 minutes."""
+Remember: Bay Club offers many different class types. Classes are typically 50 minutes long. You can book any class type, not just Ignite!"""
 
 def parse_user_intent(user_input: str) -> dict:
     """Parse user input to determine intent and extract parameters"""
@@ -156,6 +220,15 @@ def parse_user_intent(user_input: str) -> dict:
     
     # Check for booking intent
     elif any(word in user_input_lower for word in ["book", "reserve", "sign up"]):
+        # Check if booking by number (e.g., "book #2" or "book 2")
+        number_match = re.search(r'(?:book|reserve)\s*#?(\d+)', user_input_lower)
+        if number_match:
+            class_number = int(number_match.group(1))
+            return {
+                "action": "book_by_number",
+                "class_number": class_number
+            }
+        
         # Extract date
         date = extract_date_from_input(user_input)
         if date:
@@ -164,6 +237,33 @@ def parse_user_intent(user_input: str) -> dict:
         else:
             # Use last mentioned date if available, otherwise default to today
             date = st.session_state.last_mentioned_date or datetime.datetime.now().strftime("%Y-%m-%d")
+        
+        # Extract class name - expanded list to include all Bay Club classes
+        class_name = None
+        class_types = [
+            "pilates mat", "pilates", "riide", "riise", "cardio hip hop", "cardio", 
+            "yoga", "vinyasa", "therapeutic yoga", "alignment", "spin", "barre", 
+            "ignite", "lift", "fiight", "zumba", "bodypump", "aqua", "choreodance",
+            "powerlifting", "gunz bunz", "trx", "rooftop", "roll release restore",
+            "forever fit", "align", "stretch"
+        ]
+        for cls_type in class_types:
+            if cls_type in user_input_lower:
+                class_name = cls_type.upper()
+                break
+        
+        # If no class name found, try to extract it from the context
+        if not class_name:
+            # Look for capitalized words that might be class names
+            words = user_input.split()
+            for word in words:
+                if word.isupper() and len(word) > 2:
+                    class_name = word
+                    break
+        
+        # Default to None if still not found (will need to ask user)
+        if not class_name:
+            class_name = None
         
         # Extract time - handle both "6am" and "6:00am" formats
         time_match = re.search(r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)', user_input_lower)
@@ -182,7 +282,8 @@ def parse_user_intent(user_input: str) -> dict:
             "action": "book_class",
             "date": date,
             "time": time,
-            "meridiem": meridiem
+            "meridiem": meridiem,
+            "class_name": class_name
         }
     
     # Default to general conversation
@@ -198,8 +299,13 @@ def process_user_input(user_input: str) -> str:
     
     if intent["action"] == "check_availability":
         return check_availability_for_date(intent["date"])
+    elif intent["action"] == "book_by_number":
+        return book_class_by_number(intent["class_number"])
     elif intent["action"] == "book_class":
-        return book_class_for_date_time(intent["date"], intent["time"], intent["meridiem"])
+        class_name = intent.get("class_name")
+        if not class_name:
+            return "❓ I couldn't identify which class you want to book. Please specify the class name (e.g., 'book Pilates at 7am' or 'book #2')"
+        return book_class_for_date_time(intent["date"], intent["time"], intent["meridiem"], class_name)
     
     # For general conversation, use the LLM
     llm = get_llm()
@@ -274,30 +380,86 @@ def check_availability_for_date(date: str) -> str:
         
         if result["status"] == "success":
             if result["available_times"]:
-                result_text = f"📅 Available classes on {date}:\n"
-                result_text += f"Found {result['ignite_studios_found']} Ignite Studios across {result['time_slots_found']} time slots:\n"
-                for time in result["available_times"]:
-                    result_text += f"  ✅ {time} - IGNITE (available)\n"
+                # Store the class list in session state for numbered booking
+                st.session_state.last_class_list = result["available_times"]
+                st.session_state.last_mentioned_date = date
+                
+                class_types = result.get('class_types', [])
+                result_text = f"### 📅 Classes for {date}\n\n"
+                result_text += f"**Found {result['total_classes_found']} classes** across **{len(class_types)} types**\n\n"
+                result_text += f"**Class Types:** {', '.join(sorted(class_types))}\n\n"
+                result_text += "---\n\n"
+                result_text += "**Schedule (sorted by time):**\n\n"
+                
+                for i, class_info in enumerate(result["available_times"], 1):
+                    # Parse availability status to show appropriate emoji
+                    if "(Available)" in class_info:
+                        emoji = "✅"
+                    elif "(Waitlist)" in class_info:
+                        emoji = "⏳"
+                    else:
+                        emoji = "ℹ️"
+                    result_text += f"{i}. {emoji} {class_info}\n"
+                
+                result_text += f"\n💡 *Tip: You can book by number! Just say \"book #2\" or \"book 5\"*"
                 return result_text
             else:
+                st.session_state.last_class_list = []
                 return f"📅 No available classes found for {date}"
         elif result["status"] == "no_classes":
-            return f"📅 No Ignite classes found for {date}"
+            st.session_state.last_class_list = []
+            return f"📅 No classes found for {date}"
         else:
             return f"Error: {result.get('error', 'Unknown error occurred')}"
     except Exception as e:
         return f"Error checking availability: {str(e)}"
 
-def book_class_for_date_time(date: str, time: str, meridiem: str = "AM") -> str:
+def book_class_by_number(class_number: int) -> str:
+    """Book a class by its number from the last displayed list"""
+    try:
+        if not st.session_state.user_credentials["username"]:
+            return "Please set your Bay Club credentials first."
+        
+        if not st.session_state.last_class_list:
+            return "❓ Please check available classes first before booking by number."
+        
+        if class_number < 1 or class_number > len(st.session_state.last_class_list):
+            return f"❌ Invalid class number. Please choose a number between 1 and {len(st.session_state.last_class_list)}."
+        
+        # Get the class info from the list (1-indexed)
+        class_info = st.session_state.last_class_list[class_number - 1]
+        
+        # Parse the class info string: "7:00 AM - LiFT with Unknown (Available)"
+        import re
+        match = re.match(r'(\d{1,2}:\d{2})\s*(AM|PM)\s*-\s*([^(]+?)(?:\s+with\s+[^(]+)?\s*\(', class_info)
+        
+        if not match:
+            return f"❌ Error parsing class information: {class_info}"
+        
+        time_str = match.group(1)
+        meridiem = match.group(2)
+        class_name = match.group(3).strip()
+        date = st.session_state.last_mentioned_date or datetime.datetime.now().strftime("%Y-%m-%d")
+        
+        logging.info(f"Booking class #{class_number}: {class_name} at {time_str} {meridiem} on {date}")
+        
+        # Book the class
+        return book_class_for_date_time(date, time_str, meridiem, class_name)
+        
+    except Exception as e:
+        return f"Error booking class by number: {str(e)}"
+
+def book_class_for_date_time(date: str, time: str, meridiem: str = "AM", class_name: str = "IGNITE") -> str:
     """Book a class for a specific date and time"""
     try:
         if not st.session_state.user_credentials["username"]:
             return "Please set your Bay Club credentials first."
         
-        # Use our new function directly
-        success = book_ignite_class(
+        # Use the new general booking function
+        success = book_any_class(
             st.session_state.user_credentials["username"],
             st.session_state.user_credentials["password"],
+            class_name,
             date,
             time,
             meridiem,
@@ -310,98 +472,20 @@ def book_class_for_date_time(date: str, time: str, meridiem: str = "AM") -> str:
                 "date": date,
                 "time": time,
                 "meridiem": meridiem,
+                "class_name": class_name,
                 "timestamp": datetime.datetime.now().isoformat(),
                 "status": "booked"
             }
             st.session_state.booking_history.append(booking_record)
-            return f"✅ Successfully booked class for {date} at {time} {meridiem}!"
+            return f"✅ Successfully booked **{class_name}** class for {date} at {time} {meridiem}!"
         else:
-            return f"❌ Failed to book class for {date} at {time} {meridiem}"
+            return f"❌ Failed to book {class_name} class for {date} at {time} {meridiem}"
     except Exception as e:
         return f"Error booking class: {str(e)}"
 
-def find_next_available() -> str:
-    """Find and book the next available class"""
-    try:
-        if not st.session_state.user_credentials["username"]:
-            return "Please set your Bay Club credentials first."
-        
-        # Use subprocess to avoid Streamlit context issues
-        cmd = [
-            "python", "booking_runner.py",
-            "--action", "find_next_available",
-            "--username", st.session_state.user_credentials["username"],
-            "--password", st.session_state.user_credentials["password"]
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
-        
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            if data["success"]:
-                result_data = data["data"]
-                if result_data["success"]:
-                    # Add to booking history
-                    booking_record = {
-                        "date": result_data["date"],
-                        "time": result_data["time"],
-                        "meridiem": "AM",
-                        "timestamp": datetime.datetime.now().isoformat(),
-                        "status": result_data["status"]
-                    }
-                    st.session_state.booking_history.append(booking_record)
-                    
-                    status_emoji = "✅" if result_data["status"] == "booked" else "⏳"
-                    return f"{status_emoji} Found and {result_data['status']} class for {result_data['date']} at {result_data['time']}"
-                else:
-                    return f"❌ {result_data['message']}"
-            else:
-                return f"Error: {data['error']}"
-        else:
-            return f"Error running find next available: {result.stderr}"
-    except Exception as e:
-        return f"Error finding next available: {str(e)}"
-
-def show_weekly_schedule() -> str:
-    """Show the weekly schedule"""
-    try:
-        if not st.session_state.user_credentials["username"]:
-            return "Please set your Bay Club credentials first."
-        
-        # Use subprocess to avoid Streamlit context issues
-        cmd = [
-            "python", "booking_runner.py",
-            "--action", "show_weekly_schedule",
-            "--username", st.session_state.user_credentials["username"],
-            "--password", st.session_state.user_credentials["password"]
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
-        
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            if data["success"]:
-                week_schedule = data["data"]
-                result_text = "📊 Weekly Schedule:\n"
-                for date, day_info in week_schedule["days"].items():
-                    result_text += f"\n{date}:\n"
-                    if day_info["total_available"] > 0:
-                        for class_info in day_info["classes"]:
-                            status_emoji = "✅" if class_info["status"] == "available" else "⏳"
-                            result_text += f"  {status_emoji} {class_info['time']} - {class_info['class_type']} ({class_info['status']})\n"
-                    else:
-                        result_text += "  No classes available\n"
-                return result_text
-            else:
-                return f"Error: {data['error']}"
-        else:
-            return f"Error running weekly schedule: {result.stderr}"
-    except Exception as e:
-        return f"Error getting weekly schedule: {str(e)}"
-
 # --- Main App Layout ---
 st.title("🏋️‍♀️ Bay Club Booking Assistant")
-st.markdown("Your AI-powered assistant for booking Ignite classes at Bay Club San Francisco")
+st.markdown("Your AI-powered assistant for booking classes at Bay Club San Francisco (Ignite, Pilates, Riide, Cardio Hip Hop, and more)")
 
 # Sidebar for credentials and settings
 with st.sidebar:
@@ -444,7 +528,8 @@ with st.sidebar:
     st.subheader("📚 Booking History")
     if st.session_state.booking_history:
         for i, booking in enumerate(st.session_state.booking_history[-5:]):  # Show last 5
-            st.write(f"**{i+1}.** {booking['date']} at {booking['time']} {booking['meridiem']}")
+            class_name = booking.get('class_name', 'Class')
+            st.write(f"**{i+1}.** {class_name} - {booking['date']} at {booking['time']} {booking['meridiem']}")
             st.write(f"   Status: {booking['status']}")
     else:
         st.write("No bookings yet")
@@ -467,44 +552,12 @@ with col1:
         st.rerun()
 
 with col2:
-    if st.button("🔍 Find Next Available"):
-        result = find_next_available()
-        st.session_state.messages.append({"role": "assistant", "content": result})
-        st.rerun()
-
-col3, col4 = st.columns(2)
-
-with col3:
-    if st.button("📊 Show Weekly Schedule"):
-        result = show_weekly_schedule()
-        st.session_state.messages.append({"role": "assistant", "content": result})
-        st.rerun()
-
-with col4:
     if st.button("🗓️ Check Tomorrow"):
         tomorrow = (datetime.datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
         result = check_availability_for_date(tomorrow)
         st.session_state.messages.append({"role": "assistant", "content": result})
         st.rerun()
 
-# Manual booking section
-st.subheader("🎯 Manual Booking")
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    booking_date = st.date_input("Select Date", value=datetime.datetime.now().date())
-
-with col2:
-    booking_time = st.selectbox("Select Time", ["6:00", "6:30", "7:00", "7:30", "8:00", "8:30"])
-
-with col3:
-    booking_meridiem = st.selectbox("AM/PM", ["AM", "PM"])
-
-if st.button("Book Class"):
-    date_str = booking_date.strftime("%Y-%m-%d")
-    result = book_class_for_date_time(date_str, booking_time, booking_meridiem)
-    st.session_state.messages.append({"role": "assistant", "content": result})
-    st.rerun()
 
 # Main chat interface
 st.subheader("💬 Chat with your booking assistant")
@@ -532,6 +585,9 @@ if prompt := st.chat_input("Ask me about class availability or book a class...")
     # Add assistant response to chat history
     st.session_state.messages.append({"role": "assistant", "content": response})
 
-# Footer
-st.markdown("---")
-st.markdown("💡 **Tips:** Use the quick action buttons above for common tasks, or chat with me for more complex requests!")
+# Custom sticky footer
+st.markdown("""
+<div class="footer">
+    made with <3 in sf | <a href="https://github.com/elizabethsiegle/bayclub-ignite-agent-do-langchain/tree/main" target="_blank">View on GitHub</a>
+</div>
+""", unsafe_allow_html=True)

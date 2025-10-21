@@ -1,10 +1,10 @@
 # Bay Club Ignite Class Booking Assistant
 
-A comprehensive Python system for booking Ignite classes at Bay Club San Francisco, featuring both command-line tools and an AI-powered Streamlit chat interface.
+A comprehensive Python system for booking Ignite classes at Bay Club San Francisco, featuring an AI-powered Streamlit chat interface.
 
-## 🚀 Features
+## Features
 
-### Core Booking System
+### Class Booking/Checking Tools
 - **`book_ignite_class()`**: Books Ignite classes at Bay Club San Francisco
   - Supports variable date input (YYYY-MM-DD format)
   - Supports variable time input (7:00, 6:30, etc.)
@@ -17,7 +17,7 @@ A comprehensive Python system for booking Ignite classes at Bay Club San Francis
 - Smart day selection (works for any day - Ignite classes run daily)
 - Context manager for proper resource cleanup
 
-### AI Chat Assistant (Streamlit)
+### LLM Chat Assistant (Streamlit)
 - Conversational AI interface using Gradient LLM
 - **Direct tool integration**: Chat messages can trigger booking and checking functions
 - **Natural language processing**: Understands phrases like "Check classes for today" or "Book a 7:00 AM class tomorrow"
@@ -32,7 +32,7 @@ A comprehensive Python system for booking Ignite classes at Bay Club San Francis
 - Weekly schedule generation
 - Real-time availability status (available/waitlist)
 
-## 📦 Installation
+## Setup
 
 1. Clone the repository and navigate to the directory:
 ```bash
