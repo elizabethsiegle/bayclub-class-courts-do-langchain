@@ -307,18 +307,6 @@ def main():
         else:
             print(f"❌ {check_result['status']}: {check_result.get('error', 'No classes found')}")
         
-        # Example 3: Book a class (uncomment to use)
-        # print("\n3. Booking a class...")
-        # success = book_ignite_class(USERNAME, PASSWORD, today, "7:00", "AM", HEADLESS)
-        # if success:
-        #     print("✅ Successfully booked class!")
-        # else:
-        #     print("❌ Booking failed")
-        
-        print("\n🎉 Demo completed!")
-        print("\nTo use these functions:")
-        print("- check_ignite_class(username, password, date, headless)")
-        print("- book_ignite_class(username, password, date, time, meridiem, headless)")
             
     except ValueError as e:
         print(f"❌ Configuration error: {e}")
