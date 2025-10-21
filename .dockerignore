@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation (optional - remove if you want docs in image)
+*.md
+ARCHITECTURE.md
+TEACHING_GUIDE.md
+BUILD_AND_RUN.md
+QUICK_REFERENCE.md
+
+# Scripts
+build.sh
+run-web.sh
+run-cli.sh
+
+# Screenshots and debug files
+*.png
+*.jpg
+*.jpeg
+*_debug.png
+*_error.png
+
+# Logs
+*.log
+
