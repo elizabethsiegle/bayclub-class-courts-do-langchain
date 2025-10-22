@@ -5,12 +5,14 @@
     - tool !respond with JSON. Clicks
     - Tennis Court!
 - [ ] Demo
-- [ ] Agents on LangChain and DigitalOcean
+- [ ] Streamlit
+- [ ] Agents🕵️‍♀️ on LangChain⛓️ and DigitalOcean🐳
 - [ ] Tools🛠️⚒️
     - check_tennis_courts
     - book_tennis_court
     - check_all_classes
     - book_any_class
+- [ ] Origins of project
 - [ ] Agentic 🛠️ tips && takes
     - 🔨 > 🕵️‍♀️
         - 🔨 quality > orchestration complexity
@@ -23,25 +25,27 @@
             - safer, testable, LLM can flexibly chain
     - !blindly use tools
         - 👀 [tool poisoning](https://x.com/lbeurerkellner/status/1907075048118059101?s=46)
-    - MCP ⚒️ != API Wrappers
+    - MCP/Agentic Tools ⚒️ != API Wrappers
     - Design Tools⚒️ like you design endpoints
         - validate inputs, predict outputs
         - doc edge cases (ie "this tool might fail if site is down")
     - Descriptions should be boring
 - [ ] In this project...
     - Debug in prod
-    - Give tools⚒️ logs🪵. 
+    - Give tools⚒️ logs🪵--intent, action, outcome: judgment
     - Keep DOM interaction as minimal as possible
+        - think declaratively
     - Watch for layout shifts, button loads
     - headless browser != headless logic
+        - separate judgment layer (LLM agent) from execution (browser)
         - !just controlling browser, automating judgment
         - retries, timeouts, fallbacks
 - [ ] What's Next
     - auth
-    - schedule ie [cron triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
-    - browser MCP tools = LLMs go from text prediction -> task completion
+    - Trigger function from [DO Functions](https://cloud.digitalocean.com/functions/)
+    - agentic tools = LLMs go from text prediction -> task completion
     - email lizzie@cloudflare.com, 🐦@lizziepika
 - [ ] Resources
-    - [Cloudflare Playwright MCP](https://github.com/cloudflare/playwright-mcp)
-    - [Browser Rendering docs](https://developers.cloudflare.com/browser-rendering/)
+    - [DigitalOcean Gradient on LangChain](https://python.langchain.com/docs/integrations/providers/gradientai/)
+    - [DO Agents](https://docs.digitalocean.com/products/gradient-ai-platform/how-to/use-agents/)
     - [Cloudflare MCP click to deploy](https://developers.cloudflare.com/agents/guides/remote-mcp-server/)
