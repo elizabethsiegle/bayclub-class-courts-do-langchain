@@ -492,6 +492,505 @@ class IgniteBooking:
             logging.error(f"Failed to book: {e}")
             return False
 
+    def _click_hour_view(self):
+        """Helper function to click HOUR VIEW button using JavaScript"""
+        logging.info("Clicking HOUR VIEW button...")
+        time.sleep(2)
+        
+        try:
+            hour_view_clicked = self.page.evaluate("""
+                () => {
+                    const buttons = Array.from(document.querySelectorAll('div.btn'));
+                    for (const btn of buttons) {
+                        if (btn.textContent.includes('HOUR VIEW')) {
+                            btn.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+            """)
+            
+            if hour_view_clicked:
+                logging.info("Clicked HOUR VIEW")
+                time.sleep(3)  # Wait for view change
+                return True
+            else:
+                logging.error("Could not find HOUR VIEW button!")
+                self.page.screenshot(path="hour_view_error.png")
+                return False
+        except Exception as e:
+            logging.error(f"Failed to click HOUR VIEW: {e}")
+            self.page.screenshot(path="hour_view_error.png")
+            return False
+
+    def check_tennis_courts(self, date=None, club_name="San Francisco"):
+        """Check available tennis courts for a given date"""
+        try:
+            # Navigate to plan-visit page
+            self.page.goto("https://bayclubconnect.com/plan-visit")
+            self.page.wait_for_load_state("networkidle", timeout=10000)
+            time.sleep(2)
+            
+            # Open club dropdown and select club
+            for selector in ["app-input-select input.form-control", "input#input_select", ".form-control.clickable"]:
+                try:
+                    self.page.wait_for_selector(selector, timeout=5000).click()
+                    time.sleep(1)
+                    break
+                except:
+                    continue
+            
+            # Click club name
+            for selector in [f"//span[text()='{club_name}']", f"text={club_name}"]:
+                try:
+                    elements = self.page.query_selector_all(selector)
+                    for el in elements:
+                        if el.text_content().strip() == club_name:
+                            el.click()
+                            time.sleep(1)
+                            break
+                    break
+                except:
+                    continue
+            
+            # Select Gateway - try multiple approaches for radio button
+            gateway_clicked = False
+            logging.info("Looking for Gateway option...")
+            
+            gateway_selectors = [
+                "//span[contains(@class, 'i-radio')]/following-sibling::text()[contains(., 'Gateway')]/..",
+                "//span[contains(@class, 'i-radio-off')]/parent::*[contains(., 'Gateway')]",
+                "//*[contains(., 'Gateway') and .//span[contains(@class, 'i-radio')]]",
+                "text=Gateway",
+                "//span[text()='Gateway']"
+            ]
+            
+            for selector in gateway_selectors:
+                try:
+                    elements = self.page.query_selector_all(selector)
+                    for el in elements:
+                        if 'Gateway' in el.text_content():
+                            el.click()
+                            logging.info(f"Clicked Gateway using selector: {selector}")
+                            gateway_clicked = True
+                            time.sleep(2)
+                            break
+                    if gateway_clicked:
+                        break
+                except Exception as e:
+                    logging.warning(f"Failed Gateway selector {selector}: {e}")
+                    continue
+            
+            if not gateway_clicked:
+                logging.error("Could not select Gateway!")
+                self.page.screenshot(path="gateway_error.png")
+            else:
+                logging.info("Gateway selection complete")
+            
+            # Click Court Booking tile
+            for selector in ["//span[@class='tile__name size-16 weight-900' and text()='Court Booking']", "text=Court Booking"]:
+                try:
+                    self.page.wait_for_selector(selector, timeout=5000).click()
+                    time.sleep(2)
+                    break
+                except:
+                    continue
+            
+            # Select Tennis
+            for selector in ["//div[text()='Tennis']", ".category-selected:has-text('Tennis')", "text=Tennis"]:
+                try:
+                    self.page.wait_for_selector(selector, timeout=5000).click()
+                    time.sleep(1)
+                    logging.info("Selected Tennis")
+                    break
+                except:
+                    continue
+            
+            # Select 90 minutes duration
+            for selector in ["//span[text()='90 minutes ']", "text=90 minutes"]:
+                try:
+                    self.page.wait_for_selector(selector, timeout=5000).click()
+                    time.sleep(1)
+                    logging.info("Selected 90 minutes duration")
+                    break
+                except:
+                    continue
+            
+            # Click NEXT button
+            for selector in ["//button[contains(text(), 'NEXT')]", "button.btn-light-blue:has-text('NEXT')", "button:has-text('NEXT')"]:
+                try:
+                    self.page.wait_for_selector(selector, timeout=5000).click()
+                    time.sleep(2)
+                    logging.info("Clicked NEXT button")
+                    break
+                except:
+                    continue
+            
+            # Click HOUR VIEW
+            self._click_hour_view()
+            
+            # Select the date if provided
+            if date:
+                target_date = datetime.datetime.strptime(date, "%Y-%m-%d")
+                today = datetime.datetime.now()
+                days_diff = (target_date.date() - today.date()).days
+                
+                # Determine day label
+                if days_diff == 0:
+                    day_label = "Today"
+                else:
+                    day_names = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+                    day_label = day_names[target_date.weekday()]
+                
+                day_number = str(target_date.day)
+                
+                logging.info(f"Looking for day: {day_label} {day_number}")
+                
+                # Try to click the date
+                date_selectors = [
+                    f"//div[contains(@class, 'slider-item') and contains(., '{day_label}') and contains(., '{day_number}')]",
+                    f".slider-item:has-text('{day_label}'):has-text('{day_number}')"
+                ]
+                
+                clicked = False
+                for selector in date_selectors:
+                    try:
+                        elements = self.page.query_selector_all(selector)
+                        if elements:
+                            elements[0].click()
+                            logging.info(f"Clicked date: {day_label} {day_number}")
+                            clicked = True
+                            break
+                    except:
+                        continue
+                
+                if clicked:
+                    # Wait longer for the date change to trigger content reload
+                    logging.info("Waiting for date change to complete...")
+                    time.sleep(5)  # Increased wait time
+                    
+                    # Wait for network activity after date change
+                    try:
+                        self.page.wait_for_load_state("networkidle", timeout=15000)
+                        logging.info("Network settled after date selection")
+                    except:
+                        logging.warning("Network didn't settle, continuing anyway")
+                        time.sleep(3)
+                    
+                    logging.info(f"Date selection complete: {day_label} {day_number}")
+            
+            # Parse available time slots (only clickable ones)
+            # Wait for time slots to load dynamically
+            try:
+                logging.info("Waiting for time slots to load...")
+                
+                # Try multiple approaches to wait for content
+                slots_found = False
+                
+                # Approach 1: Wait for app-court-time-slot-item
+                try:
+                    self.page.wait_for_selector("app-court-time-slot-item", timeout=15000)
+                    logging.info("Court time slot items appeared")
+                    slots_found = True
+                except Exception as e1:
+                    logging.warning(f"app-court-time-slot-item not found: {e1}")
+                    
+                    # Approach 2: Wait for .time-slot with clickable class
+                    try:
+                        self.page.wait_for_selector(".time-slot.clickable", timeout=15000)
+                        logging.info("Clickable time slot divs appeared")
+                        slots_found = True
+                    except Exception as e2:
+                        logging.warning(f".time-slot.clickable not found: {e2}")
+                        
+                        # Approach 3: Just wait for any .time-slot
+                        try:
+                            self.page.wait_for_selector(".time-slot", timeout=15000)
+                            logging.info("Time slot divs appeared")
+                            slots_found = True
+                        except Exception as e3:
+                            logging.warning(f".time-slot not found: {e3}")
+                            
+                            # Approach 4: Look for the item-tile container
+                            try:
+                                self.page.wait_for_selector(".item-tile", timeout=15000)
+                                logging.info("Item tile container appeared")
+                                slots_found = True
+                            except Exception as e4:
+                                logging.error(f".item-tile not found: {e4}")
+                
+                # Wait for text-lowercase divs with actual time content
+                try:
+                    self.page.wait_for_selector(".text-lowercase:has-text('AM'), .text-lowercase:has-text('PM')", timeout=10000)
+                    logging.info("Text-lowercase divs with time content appeared")
+                except:
+                    logging.warning("Could not find text-lowercase with AM/PM")
+                
+                # Wait for network to be idle
+                try:
+                    self.page.wait_for_load_state("networkidle", timeout=5000)
+                    logging.info("Network idle, all slots should be loaded")
+                except:
+                    logging.info("Network not idle yet, but continuing")
+                
+                # Final wait to ensure all dynamic content is rendered
+                time.sleep(2)
+                logging.info("Time slots should be fully loaded")
+            except Exception as e:
+                logging.warning(f"Timeout waiting for time slots: {e}")
+                time.sleep(3)  # Fallback to fixed wait
+            
+            available_times = []
+            
+            try:
+                # Use JavaScript to get ALL app-court-time-slot-item elements
+                court_items_data = self.page.evaluate("""
+                    () => {
+                        const items = document.querySelectorAll('app-court-time-slot-item');
+                        return Array.from(items).map(item => {
+                            const timeSlot = item.querySelector('.time-slot');
+                            const textDiv = item.querySelector('.text-lowercase');
+                            
+                            if (timeSlot && textDiv) {
+                                const isDisabled = timeSlot.classList.contains('disabled');
+                                const isClickable = timeSlot.classList.contains('clickable');
+                                return {
+                                    time: textDiv.textContent.trim(),
+                                    clickable: isClickable,
+                                    disabled: isDisabled
+                                };
+                            }
+                            return null;
+                        }).filter(item => item !== null);
+                    }
+                """)
+                logging.info(f"Found {len(court_items_data)} court time slot items")
+                
+                # Parse JavaScript results
+                if len(court_items_data) > 0:
+                    import re
+                    time_pattern = re.compile(r'\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\s*[AP]M', re.IGNORECASE)
+                    
+                    for item in court_items_data:
+                        time_text = item['time']
+                        is_clickable = item['clickable']
+                        is_disabled = item['disabled']
+                        
+                        # Only include clickable, non-disabled items with valid time format
+                        if time_pattern.search(time_text) and is_clickable and not is_disabled:
+                            if time_text not in available_times:
+                                available_times.append(time_text)
+                    
+                    if len(available_times) > 0:
+                        logging.info(f"Successfully parsed {len(available_times)} times")
+                        return available_times
+                
+                logging.warning("No court time slots found")
+                return []
+                    
+            except Exception as e:
+                logging.error(f"Failed to parse time slots: {e}")
+                return []
+            
+        except Exception as e:
+            logging.error(f"Failed to check tennis courts: {e}")
+            return False
+
+    def book_tennis_court(self, date=None, time_slot=None, club_name="San Francisco"):
+        """Book a tennis court for a given date and time"""
+        try:
+            # Navigate to plan-visit page
+            self.page.goto("https://bayclubconnect.com/plan-visit")
+            self.page.wait_for_load_state("networkidle", timeout=10000)
+            time.sleep(2)
+            
+            # Open club dropdown and select club
+            for selector in ["app-input-select input.form-control", "input#input_select", ".form-control.clickable"]:
+                try:
+                    self.page.wait_for_selector(selector, timeout=5000).click()
+                    time.sleep(1)
+                    break
+                except:
+                    continue
+            
+            # Click club name
+            for selector in [f"//span[text()='{club_name}']", f"text={club_name}"]:
+                try:
+                    elements = self.page.query_selector_all(selector)
+                    for el in elements:
+                        if el.text_content().strip() == club_name:
+                            el.click()
+                            time.sleep(1)
+                            break
+                    break
+                except:
+                    continue
+            
+            # Select Gateway - try multiple approaches for radio button
+            gateway_clicked = False
+            logging.info("Looking for Gateway option...")
+            
+            gateway_selectors = [
+                "//span[contains(@class, 'i-radio')]/following-sibling::text()[contains(., 'Gateway')]/..",
+                "//span[contains(@class, 'i-radio-off')]/parent::*[contains(., 'Gateway')]",
+                "//*[contains(., 'Gateway') and .//span[contains(@class, 'i-radio')]]",
+                "text=Gateway",
+                "//span[text()='Gateway']"
+            ]
+            
+            for selector in gateway_selectors:
+                try:
+                    elements = self.page.query_selector_all(selector)
+                    for el in elements:
+                        if 'Gateway' in el.text_content():
+                            el.click()
+                            logging.info(f"Clicked Gateway using selector: {selector}")
+                            gateway_clicked = True
+                            time.sleep(2)
+                            break
+                    if gateway_clicked:
+                        break
+                except Exception as e:
+                    logging.warning(f"Failed Gateway selector {selector}: {e}")
+                    continue
+            
+            if not gateway_clicked:
+                logging.error("Could not select Gateway!")
+                self.page.screenshot(path="gateway_error.png")
+            else:
+                logging.info("Gateway selection complete")
+            
+            # Click Court Booking tile
+            for selector in ["//span[@class='tile__name size-16 weight-900' and text()='Court Booking']", "text=Court Booking"]:
+                try:
+                    self.page.wait_for_selector(selector, timeout=5000).click()
+                    time.sleep(2)
+                    break
+                except:
+                    continue
+            
+            # Select Tennis
+            for selector in ["//div[text()='Tennis']", ".category-selected:has-text('Tennis')", "text=Tennis"]:
+                try:
+                    self.page.wait_for_selector(selector, timeout=5000).click()
+                    time.sleep(1)
+                    logging.info("Selected Tennis")
+                    break
+                except:
+                    continue
+            
+            # Select 90 minutes duration
+            for selector in ["//span[text()='90 minutes ']", "text=90 minutes"]:
+                try:
+                    self.page.wait_for_selector(selector, timeout=5000).click()
+                    time.sleep(1)
+                    logging.info("Selected 90 minutes duration")
+                    break
+                except:
+                    continue
+            
+            # Click NEXT button
+            for selector in ["//button[contains(text(), 'NEXT')]", "button.btn-light-blue:has-text('NEXT')", "button:has-text('NEXT')"]:
+                try:
+                    self.page.wait_for_selector(selector, timeout=5000).click()
+                    time.sleep(2)
+                    logging.info("Clicked NEXT button")
+                    break
+                except:
+                    continue
+            
+            # Click HOUR VIEW
+            self._click_hour_view()
+            
+            # Select the date if provided
+            if date:
+                target_date = datetime.datetime.strptime(date, "%Y-%m-%d")
+                today = datetime.datetime.now()
+                days_diff = (target_date.date() - today.date()).days
+                
+                # Determine day label
+                if days_diff == 0:
+                    day_label = "Today"
+                else:
+                    day_names = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+                    day_label = day_names[target_date.weekday()]
+                
+                day_number = str(target_date.day)
+                
+                logging.info(f"Looking for day: {day_label} {day_number}")
+                
+                # Try to click the date
+                date_selectors = [
+                    f"//div[contains(@class, 'slider-item') and contains(., '{day_label}') and contains(., '{day_number}')]",
+                    f".slider-item:has-text('{day_label}'):has-text('{day_number}')"
+                ]
+                
+                for selector in date_selectors:
+                    try:
+                        elements = self.page.query_selector_all(selector)
+                        if elements:
+                            elements[0].click()
+                            time.sleep(2)
+                            logging.info(f"Selected date: {day_label} {day_number}")
+                            break
+                    except:
+                        continue
+            
+            # Click the specific time slot if provided
+            if time_slot:
+                time.sleep(2)  # Wait for times to load
+                logging.info(f"Looking for time slot: {time_slot}")
+                
+                try:
+                    time_slots = self.page.query_selector_all(".time-slot")
+                    clicked = False
+                    
+                    for slot in time_slots:
+                        try:
+                            slot_text = slot.text_content().strip()
+                            # Check if this is the desired time (match partial or full)
+                            if time_slot.lower() in slot_text.lower() or slot_text.lower() in time_slot.lower():
+                                # Check if clickable
+                                class_name = slot.get_attribute("class") or ""
+                                is_disabled = "disabled" in class_name.lower()
+                                is_visible = slot.is_visible()
+                                
+                                if is_visible and not is_disabled:
+                                    slot.click()
+                                    time.sleep(2)
+                                    logging.info(f"Clicked time slot: {slot_text}")
+                                    clicked = True
+                                    break
+                        except:
+                            continue
+                    
+                    if not clicked:
+                        logging.error(f"Could not find or click time slot: {time_slot}")
+                        return False
+                        
+                except Exception as e:
+                    logging.error(f"Failed to click time slot: {e}")
+                    return False
+            
+            # Click NEXT button to confirm booking
+            for selector in ["//button[contains(text(), 'NEXT')]", "button.btn-light-blue:has-text('NEXT')", "button:has-text('NEXT')"]:
+                try:
+                    self.page.wait_for_selector(selector, timeout=5000).click()
+                    time.sleep(2)
+                    logging.info("Clicked NEXT button to confirm booking")
+                    break
+                except:
+                    continue
+            
+            logging.info("Successfully booked tennis court")
+            return True
+            
+        except Exception as e:
+            logging.error(f"Failed to book tennis court: {e}")
+            self.page.screenshot(path="court_booking_error.png")
+            return False
+
     def save_screenshot(self, filename='screen.png', enabled=True, delay=0):
         """Save a screenshot of the current page"""
         if enabled:

@@ -205,6 +205,50 @@ def check_ignite_class(username, password, date=None, headless=False):
             'error': str(e)
         }
 
+def check_tennis_courts(username, password, date=None, club_name="San Francisco", headless=False):
+    """Check available tennis courts for a specific date"""
+    try:
+        with IgniteBooking(headless=headless) as booking:
+            # Login
+            logging.info("Logging into Bay Club...")
+            booking.login(username, password)
+            
+            # Check tennis courts
+            logging.info(f"Checking tennis courts for {club_name}...")
+            available_times = booking.check_tennis_courts(date=date, club_name=club_name)
+            
+            if available_times and isinstance(available_times, list):
+                logging.info(f"Successfully retrieved {len(available_times)} tennis court time slots")
+                return {
+                    'status': 'success',
+                    'date': date or datetime.datetime.now().strftime("%Y-%m-%d"),
+                    'club': club_name,
+                    'available_times': available_times,
+                    'total_slots': len(available_times),
+                    'message': f'Found {len(available_times)} available time slots'
+                }
+            else:
+                logging.info("No available tennis court time slots found")
+                return {
+                    'status': 'no_slots',
+                    'date': date or datetime.datetime.now().strftime("%Y-%m-%d"),
+                    'club': club_name,
+                    'available_times': [],
+                    'total_slots': 0,
+                    'message': 'No available time slots found'
+                }
+                
+    except Exception as e:
+        logging.error(f"Tennis court check failed: {e}")
+        return {
+            'status': 'error',
+            'date': date or datetime.datetime.now().strftime("%Y-%m-%d"),
+            'club': club_name,
+            'available_times': [],
+            'total_slots': 0,
+            'error': str(e)
+        }
+
 def main():
     """Main function to demonstrate booking and checking classes"""
     try:

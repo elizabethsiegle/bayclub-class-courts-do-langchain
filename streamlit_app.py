@@ -11,7 +11,7 @@ from langchain_gradient import ChatGradient
 from config import Config
 
 # Import our booking functions
-from main import book_ignite_class, book_any_class, check_ignite_class
+from main import book_ignite_class, book_any_class, check_ignite_class, check_tennis_courts
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -94,6 +94,10 @@ if "last_mentioned_date" not in st.session_state:
     st.session_state.last_mentioned_date = None
 if "last_class_list" not in st.session_state:
     st.session_state.last_class_list = []
+if "last_tennis_list" not in st.session_state:
+    st.session_state.last_tennis_list = []
+if "last_list_type" not in st.session_state:
+    st.session_state.last_list_type = None  # "classes" or "tennis"
 
 # Initialize Gradient LLM
 @st.cache_resource
@@ -203,6 +207,21 @@ def parse_user_intent(user_input: str) -> dict:
         else:
             return None
     
+    # Check for tennis court checking intent
+    if any(word in user_input_lower for word in ["tennis", "court", "courts"]):
+        date = extract_date_from_input(user_input)
+        if date:
+            # Store the date for future reference
+            st.session_state.last_mentioned_date = date
+        else:
+            # Use last mentioned date if available, otherwise default to today
+            date = st.session_state.last_mentioned_date or datetime.datetime.now().strftime("%Y-%m-%d")
+        
+        return {
+            "action": "check_tennis_courts",
+            "date": date
+        }
+    
     # Check for availability checking intent
     if any(word in user_input_lower for word in ["check", "available", "classes", "times", "schedule"]):
         date = extract_date_from_input(user_input)
@@ -297,7 +316,9 @@ def process_user_input(user_input: str) -> str:
     # First, try to parse intent and use tools if appropriate
     intent = parse_user_intent(user_input)
     
-    if intent["action"] == "check_availability":
+    if intent["action"] == "check_tennis_courts":
+        return check_tennis_courts_for_date(intent["date"])
+    elif intent["action"] == "check_availability":
         return check_availability_for_date(intent["date"])
     elif intent["action"] == "book_by_number":
         return book_class_by_number(intent["class_number"])
@@ -364,6 +385,56 @@ IMPORTANT: If the user mentions a date in one message and then asks to book a cl
         logger.error(f"Error processing user input: {e}")
         return f"Sorry, I encountered an error: {str(e)}"
 
+def check_tennis_courts_for_date(date: str) -> str:
+    """Check tennis courts for a specific date"""
+    try:
+        if not st.session_state.user_credentials["username"]:
+            return "Please set your Bay Club credentials first."
+        
+        # Use tennis court checking function
+        result = check_tennis_courts(
+            st.session_state.user_credentials["username"],
+            st.session_state.user_credentials["password"],
+            date,
+            club_name="San Francisco",
+            headless=True
+        )
+        
+        if result["status"] == "success":
+            st.session_state.last_mentioned_date = date
+            available_times = result.get('available_times', [])
+            
+            # Store tennis court list and mark the list type
+            st.session_state.last_tennis_list = available_times
+            st.session_state.last_list_type = "tennis"
+            
+            # Count actual time slots (excluding section headers)
+            actual_slots = [t for t in available_times if not t.startswith("---")]
+            
+            result_text = f"### 🎾 Tennis Court Availability for {date}\n\n"
+            result_text += f"**Club:** {result['club']}\n"
+            result_text += f"**Duration:** 90 minutes\n"
+            result_text += f"**Available Slots:** {len(actual_slots)}\n\n"
+            result_text += "---\n\n"
+            
+            if available_times:
+                result_text += "**Available Time Slots:**\n\n"
+                for i, time_slot in enumerate(available_times, 1):
+                    result_text += f"{i}. 🎾 {time_slot}\n"
+                
+                result_text += f"\n💡 *Tip: You can book by number! Just say \"book #2\" or \"book 4\"*"
+            else:
+                result_text += "⚠️ No available time slots found for this date.\n"
+            
+            return result_text
+        elif result["status"] == "no_slots":
+            st.session_state.last_mentioned_date = date
+            return f"### 🎾 Tennis Court Availability for {date}\n\n⚠️ No available time slots found."
+        else:
+            return f"❌ Error checking tennis courts: {result.get('error', 'Unknown error occurred')}"
+    except Exception as e:
+        return f"Error checking tennis courts: {str(e)}"
+
 def check_availability_for_date(date: str) -> str:
     """Check availability for a specific date"""
     try:
@@ -382,6 +453,7 @@ def check_availability_for_date(date: str) -> str:
             if result["available_times"]:
                 # Store the class list in session state for numbered booking
                 st.session_state.last_class_list = result["available_times"]
+                st.session_state.last_list_type = "classes"
                 st.session_state.last_mentioned_date = date
                 
                 class_types = result.get('class_types', [])
@@ -415,39 +487,99 @@ def check_availability_for_date(date: str) -> str:
         return f"Error checking availability: {str(e)}"
 
 def book_class_by_number(class_number: int) -> str:
-    """Book a class by its number from the last displayed list"""
+    """Book a class or tennis court by its number from the last displayed list"""
     try:
         if not st.session_state.user_credentials["username"]:
             return "Please set your Bay Club credentials first."
         
-        if not st.session_state.last_class_list:
-            return "❓ Please check available classes first before booking by number."
+        # Determine which list to use based on last list type
+        if st.session_state.last_list_type == "tennis":
+            # Booking a tennis court
+            if not st.session_state.last_tennis_list:
+                return "❓ Please check available tennis courts first before booking by number."
+            
+            if class_number < 1 or class_number > len(st.session_state.last_tennis_list):
+                return f"❌ Invalid slot number. Please choose a number between 1 and {len(st.session_state.last_tennis_list)}."
+            
+            # Get the time slot from the list (1-indexed)
+            time_slot = st.session_state.last_tennis_list[class_number - 1]
+            date = st.session_state.last_mentioned_date or datetime.datetime.now().strftime("%Y-%m-%d")
+            
+            logging.info(f"Booking tennis court #{class_number}: {time_slot} on {date}")
+            
+            # Book the tennis court
+            return book_tennis_court_for_time(date, time_slot)
         
-        if class_number < 1 or class_number > len(st.session_state.last_class_list):
-            return f"❌ Invalid class number. Please choose a number between 1 and {len(st.session_state.last_class_list)}."
-        
-        # Get the class info from the list (1-indexed)
-        class_info = st.session_state.last_class_list[class_number - 1]
-        
-        # Parse the class info string: "7:00 AM - LiFT with Unknown (Available)"
-        import re
-        match = re.match(r'(\d{1,2}:\d{2})\s*(AM|PM)\s*-\s*([^(]+?)(?:\s+with\s+[^(]+)?\s*\(', class_info)
-        
-        if not match:
-            return f"❌ Error parsing class information: {class_info}"
-        
-        time_str = match.group(1)
-        meridiem = match.group(2)
-        class_name = match.group(3).strip()
-        date = st.session_state.last_mentioned_date or datetime.datetime.now().strftime("%Y-%m-%d")
-        
-        logging.info(f"Booking class #{class_number}: {class_name} at {time_str} {meridiem} on {date}")
-        
-        # Book the class
-        return book_class_for_date_time(date, time_str, meridiem, class_name)
+        else:
+            # Booking a class
+            if not st.session_state.last_class_list:
+                return "❓ Please check available classes first before booking by number."
+            
+            if class_number < 1 or class_number > len(st.session_state.last_class_list):
+                return f"❌ Invalid class number. Please choose a number between 1 and {len(st.session_state.last_class_list)}."
+            
+            # Get the class info from the list (1-indexed)
+            class_info = st.session_state.last_class_list[class_number - 1]
+            
+            # Parse the class info string: "7:00 AM - LiFT with Unknown (Available)"
+            import re
+            match = re.match(r'(\d{1,2}:\d{2})\s*(AM|PM)\s*-\s*([^(]+?)(?:\s+with\s+[^(]+)?\s*\(', class_info)
+            
+            if not match:
+                return f"❌ Error parsing class information: {class_info}"
+            
+            time_str = match.group(1)
+            meridiem = match.group(2)
+            class_name = match.group(3).strip()
+            date = st.session_state.last_mentioned_date or datetime.datetime.now().strftime("%Y-%m-%d")
+            
+            logging.info(f"Booking class #{class_number}: {class_name} at {time_str} {meridiem} on {date}")
+            
+            # Book the class
+            return book_class_for_date_time(date, time_str, meridiem, class_name)
         
     except Exception as e:
-        return f"Error booking class by number: {str(e)}"
+        return f"Error booking by number: {str(e)}"
+
+def book_tennis_court_for_time(date: str, time_slot: str) -> str:
+    """Book a tennis court for a specific date and time"""
+    try:
+        if not st.session_state.user_credentials["username"]:
+            return "Please set your Bay Club credentials first."
+        
+        # Import the booking function
+        from main import check_tennis_courts, book_any_class
+        from bayclub_booking import IgniteBooking
+        
+        # Book the tennis court
+        with IgniteBooking(headless=True) as booking:
+            booking.login(
+                st.session_state.user_credentials["username"],
+                st.session_state.user_credentials["password"]
+            )
+            
+            success = booking.book_tennis_court(
+                date=date,
+                time_slot=time_slot,
+                club_name="San Francisco"
+            )
+            
+            if success:
+                # Add to booking history
+                booking_record = {
+                    "date": date,
+                    "time": time_slot,
+                    "meridiem": "",
+                    "class_name": f"Tennis Court",
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "status": "booked"
+                }
+                st.session_state.booking_history.append(booking_record)
+                return f"✅ Successfully booked tennis court for {date} at {time_slot}!"
+            else:
+                return f"❌ Failed to book tennis court for {date} at {time_slot}"
+    except Exception as e:
+        return f"Error booking tennis court: {str(e)}"
 
 def book_class_for_date_time(date: str, time: str, meridiem: str = "AM", class_name: str = "IGNITE") -> str:
     """Book a class for a specific date and time"""
@@ -485,7 +617,7 @@ def book_class_for_date_time(date: str, time: str, meridiem: str = "AM", class_n
 
 # --- Main App Layout ---
 st.title("🏋️‍♀️ Bay Club Booking Assistant")
-st.markdown("Your AI-powered assistant for booking classes at Bay Club San Francisco (Ignite, Pilates, Riide, Cardio Hip Hop, and more)")
+st.markdown("Your AI-powered assistant for booking classes and tennis courts at Bay Club San Francisco")
 
 # Sidebar for credentials and settings
 with st.sidebar:
@@ -542,7 +674,7 @@ with st.sidebar:
 # Quick action buttons
 st.subheader("🚀 Quick Actions")
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 with col1:
     if st.button("📅 Check Today's Classes"):
@@ -555,6 +687,13 @@ with col2:
     if st.button("🗓️ Check Tomorrow"):
         tomorrow = (datetime.datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
         result = check_availability_for_date(tomorrow)
+        st.session_state.messages.append({"role": "assistant", "content": result})
+        st.rerun()
+
+with col3:
+    if st.button("🎾 Check Tennis Courts"):
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        result = check_tennis_courts_for_date(today)
         st.session_state.messages.append({"role": "assistant", "content": result})
         st.rerun()
 
@@ -588,6 +727,6 @@ if prompt := st.chat_input("Ask me about class availability or book a class...")
 # Custom sticky footer
 st.markdown("""
 <div class="footer">
-    made with <3 in sf | <a href="https://github.com/elizabethsiegle/bayclub-ignite-agent-do-langchain/tree/main" target="_blank">View on GitHub</a>
+    made with <3 in sf | <a href="https://github.com/elizabethsiegle/bayclub-class-courts-do-langchain" target="_blank">View on GitHub</a>
 </div>
 """, unsafe_allow_html=True)
