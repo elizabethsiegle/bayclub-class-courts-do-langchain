@@ -5,12 +5,12 @@ A comprehensive Python system for booking Ignite classes at Bay Club San Francis
 ## Features
 
 ### Class Booking/Checking Tools
-- **`book_ignite_class()`**: Books Ignite classes at Bay Club San Francisco
+- **`book_any_class()`**: Books any class type at Bay Club San Francisco (Ignite, Pilates, Riide, etc.)
   - Supports variable date input (YYYY-MM-DD format)
   - Supports variable time input (7:00, 6:30, etc.)
   - Supports variable AM/PM selection
-  - Automatically adds to waitlist if class is full
-- **`check_ignite_class()`**: Checks available Ignite classes for a specific date
+  - Supports any class name (Ignite, Pilates, Riide, Cardio Hip Hop, etc.)
+- **`check_all_classes()`**: Checks available classes for a specific date (all types: Ignite, Pilates, Riide, etc.)
   - Returns available times and class information
   - Can check any date (past, present, or future)
   - Returns detailed status information
@@ -85,11 +85,11 @@ streamlit run streamlit_app.py
 Then open your browser to `http://localhost:8501` and chat with the AI assistant!
 
 **Example conversations:**
-- "Check classes for today" → Automatically calls `check_ignite_class()`
-- "What classes are available tomorrow?" → Automatically calls `check_ignite_class()`
-- "Book me a 7:00 AM class for Wednesday" → Automatically calls `book_ignite_class()`
-- "Book a class for 2025-10-22 at 6:30 AM" → Automatically calls `book_ignite_class()`
-- "Show me available times for today" → Automatically calls `check_ignite_class()`
+- "Check classes for today" → Automatically calls `check_all_classes()`
+- "What classes are available tomorrow?" → Automatically calls `check_all_classes()`
+- "Book me a 7:00 AM Ignite class for Wednesday" → Automatically calls `book_any_class()`
+- "Book a Pilates class for 2025-10-22 at 6:30 AM" → Automatically calls `book_any_class()`
+- "Show me available times for today" → Automatically calls `check_all_classes()`
 
 **Natural Language Features:**
 - Understands relative dates: "today", "tomorrow", "next week"
@@ -111,7 +111,7 @@ python example_usage.py
 ### Option 3: Programmatic Usage
 
 ```python
-from main import book_ignite_class, check_ignite_class
+from main import book_any_class, check_all_classes
 from config import Config
 
 # Get credentials
@@ -119,11 +119,11 @@ username = Config.BAY_CLUB_USERNAME
 password = Config.BAY_CLUB_PASSWORD
 
 # Check classes for a specific date
-result = check_ignite_class(username, password, "2025-10-22", headless=True)
+result = check_all_classes(username, password, "2025-10-22", headless=True)
 print(f"Available times: {result['available_times']}")
 
 # Book a class for a specific date and time
-success = book_ignite_class(username, password, "2025-10-22", "7:00", "AM", headless=True)
+success = book_any_class(username, password, "IGNITE", "2025-10-22", "7:00", "AM", headless=True)
 if success:
     print("✅ Successfully booked class!")
 ```
@@ -143,8 +143,8 @@ The system now supports flexible date and time selection:
 - **Meridiem**: "AM" or "PM" (default: "AM")
 
 ### Function Parameters
-- `book_ignite_class(username, password, date=None, time="7:00", meridiem="AM", headless=False)`
-- `check_ignite_class(username, password, date=None, headless=False)`
+- `book_any_class(username, password, class_name, date=None, time="7:00", meridiem="AM", headless=False)`
+- `check_all_classes(username, password, date=None, headless=False)`
 
 ## 🛠️ File Structure
 

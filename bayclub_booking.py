@@ -494,35 +494,41 @@ class IgniteBooking:
 
     def _click_hour_view(self):
         """Helper function to click HOUR VIEW button using JavaScript"""
-        logging.info("Clicking HOUR VIEW button...")
-        time.sleep(2)
+        logging.info("Waiting for HOUR VIEW button to appear...")
         
-        try:
-            hour_view_clicked = self.page.evaluate("""
-                () => {
-                    const buttons = Array.from(document.querySelectorAll('div.btn'));
-                    for (const btn of buttons) {
-                        if (btn.textContent.includes('HOUR VIEW')) {
-                            btn.click();
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-            """)
+        # Wait for the button to appear (retry up to 5 times)
+        hour_view_clicked = False
+        for attempt in range(5):
+            time.sleep(2)
+            logging.info(f"HOUR VIEW attempt {attempt + 1}/5...")
             
-            if hour_view_clicked:
-                logging.info("Clicked HOUR VIEW")
-                time.sleep(3)  # Wait for view change
-                return True
-            else:
-                logging.error("Could not find HOUR VIEW button!")
-                self.page.screenshot(path="hour_view_error.png")
-                return False
-        except Exception as e:
-            logging.error(f"Failed to click HOUR VIEW: {e}")
-            self.page.screenshot(path="hour_view_error.png")
-            return False
+            try:
+                hour_view_clicked = self.page.evaluate("""
+                    () => {
+                        const buttons = Array.from(document.querySelectorAll('div.btn'));
+                        for (const btn of buttons) {
+                            if (btn.textContent.includes('HOUR VIEW')) {
+                                btn.click();
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                """)
+                
+                if hour_view_clicked:
+                    logging.info(f"✓ Clicked HOUR VIEW on attempt {attempt + 1}")
+                    time.sleep(3)  # Wait for view change
+                    return True
+                else:
+                    logging.warning(f"HOUR VIEW button not found on attempt {attempt + 1}")
+            except Exception as e:
+                logging.warning(f"Attempt {attempt + 1} failed: {e}")
+        
+        # All attempts failed
+        logging.error("Could not find HOUR VIEW button after 5 attempts!")
+        self.page.screenshot(path="hour_view_error.png")
+        return False
 
     def check_tennis_courts(self, date=None, club_name="San Francisco"):
         """Check available tennis courts for a given date"""
@@ -621,11 +627,18 @@ class IgniteBooking:
             for selector in ["//button[contains(text(), 'NEXT')]", "button.btn-light-blue:has-text('NEXT')", "button:has-text('NEXT')"]:
                 try:
                     self.page.wait_for_selector(selector, timeout=5000).click()
-                    time.sleep(2)
                     logging.info("Clicked NEXT button")
                     break
                 except:
                     continue
+            
+            # Wait for calendar page to load
+            logging.info("Waiting for calendar page to load...")
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=10000)
+            except:
+                logging.warning("Network not idle, but continuing...")
+            time.sleep(3)
             
             # Click HOUR VIEW
             self._click_hour_view()
@@ -770,20 +783,38 @@ class IgniteBooking:
                 # Parse JavaScript results
                 if len(court_items_data) > 0:
                     import re
-                    time_pattern = re.compile(r'\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\s*[AP]M', re.IGNORECASE)
+                    # Stricter pattern: must start with digit, proper time format
+                    time_pattern = re.compile(r'^\s*(\d{1,2}):([0-9]{2})\s*-\s*(\d{1,2}):([0-9]{2})\s*([AP]M)\s*$', re.IGNORECASE)
                     
-                    for item in court_items_data:
-                        time_text = item['time']
+                    for i, item in enumerate(court_items_data):
+                        time_text = item['time'].strip()
                         is_clickable = item['clickable']
                         is_disabled = item['disabled']
                         
+                        # Log all items for debugging
+                        logging.info(f"Item {i+1}/{len(court_items_data)}: '{time_text}' (clickable={is_clickable}, disabled={is_disabled})")
+                        
                         # Only include clickable, non-disabled items with valid time format
-                        if time_pattern.search(time_text) and is_clickable and not is_disabled:
-                            if time_text not in available_times:
-                                available_times.append(time_text)
+                        match = time_pattern.match(time_text)
+                        if match and is_clickable and not is_disabled:
+                            # Validate that minutes are 00 or 30 (standard court times)
+                            start_min = match.group(2)
+                            end_min = match.group(4)
+                            
+                            # Only accept times with :00 or :30 minutes
+                            if start_min in ['00', '30'] and end_min in ['00', '30']:
+                                if time_text not in available_times:
+                                    available_times.append(time_text)
+                                    logging.info(f"✓ ADDED: {time_text}")
+                            else:
+                                logging.info(f"✗ Rejected (invalid minutes): {time_text}")
+                        elif match:
+                            logging.info(f"✗ Rejected (not clickable={is_clickable} or disabled={is_disabled}): {time_text}")
+                        else:
+                            logging.info(f"✗ Rejected (malformed): '{time_text}'")
                     
                     if len(available_times) > 0:
-                        logging.info(f"Successfully parsed {len(available_times)} times")
+                        logging.info(f"Successfully parsed {len(available_times)} valid times")
                         return available_times
                 
                 logging.warning("No court time slots found")
@@ -894,11 +925,18 @@ class IgniteBooking:
             for selector in ["//button[contains(text(), 'NEXT')]", "button.btn-light-blue:has-text('NEXT')", "button:has-text('NEXT')"]:
                 try:
                     self.page.wait_for_selector(selector, timeout=5000).click()
-                    time.sleep(2)
                     logging.info("Clicked NEXT button")
                     break
                 except:
                     continue
+            
+            # Wait for calendar page to load
+            logging.info("Waiting for calendar page to load...")
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=10000)
+            except:
+                logging.warning("Network not idle, but continuing...")
+            time.sleep(3)
             
             # Click HOUR VIEW
             self._click_hour_view()
@@ -942,46 +980,194 @@ class IgniteBooking:
                 time.sleep(2)  # Wait for times to load
                 logging.info(f"Looking for time slot: {time_slot}")
                 
+                # Normalize the time slot search string (remove extra spaces)
+                import re
+                normalized_search = re.sub(r'\s+', ' ', time_slot.strip())
+                logging.info(f"Normalized search: {normalized_search}")
+                
                 try:
                     time_slots = self.page.query_selector_all(".time-slot")
+                    logging.info(f"Found {len(time_slots)} total time-slot elements")
                     clicked = False
                     
-                    for slot in time_slots:
+                    for i, slot in enumerate(time_slots):
                         try:
                             slot_text = slot.text_content().strip()
-                            # Check if this is the desired time (match partial or full)
-                            if time_slot.lower() in slot_text.lower() or slot_text.lower() in time_slot.lower():
-                                # Check if clickable
-                                class_name = slot.get_attribute("class") or ""
-                                is_disabled = "disabled" in class_name.lower()
+                            # Normalize the slot text (remove extra spaces)
+                            normalized_slot = re.sub(r'\s+', ' ', slot_text)
+                            
+                            logging.info(f"Slot {i+1}: '{normalized_slot}' (original: '{slot_text}')")
+                            
+                            # Check if clickable before matching
+                            class_name = slot.get_attribute("class") or ""
+                            is_disabled = "disabled" in class_name.lower()
+                            is_clickable = "clickable" in class_name.lower()
+                            
+                            try:
                                 is_visible = slot.is_visible()
+                            except:
+                                is_visible = True
+                            
+                            # Flexible matching: normalize both strings and compare
+                            if normalized_search.lower() in normalized_slot.lower() or normalized_slot.lower() in normalized_search.lower():
+                                logging.info(f"  → MATCH! clickable={is_clickable}, disabled={is_disabled}, visible={is_visible}")
                                 
-                                if is_visible and not is_disabled:
+                                if is_visible and not is_disabled and is_clickable:
                                     slot.click()
                                     time.sleep(2)
-                                    logging.info(f"Clicked time slot: {slot_text}")
+                                    logging.info(f"✓ Clicked time slot: {slot_text}")
                                     clicked = True
                                     break
-                        except:
+                                else:
+                                    logging.warning(f"  → Match found but not clickable (clickable={is_clickable}, disabled={is_disabled}, visible={is_visible})")
+                        except Exception as e:
+                            logging.warning(f"Error checking slot {i+1}: {e}")
                             continue
                     
                     if not clicked:
                         logging.error(f"Could not find or click time slot: {time_slot}")
+                        self.page.screenshot(path="time_slot_error.png")
                         return False
                         
                 except Exception as e:
                     logging.error(f"Failed to click time slot: {e}")
+                    self.page.screenshot(path="time_slot_error.png")
                     return False
             
-            # Click NEXT button to confirm booking
+            # Click NEXT button to proceed to player selection
             for selector in ["//button[contains(text(), 'NEXT')]", "button.btn-light-blue:has-text('NEXT')", "button:has-text('NEXT')"]:
                 try:
                     self.page.wait_for_selector(selector, timeout=5000).click()
                     time.sleep(2)
-                    logging.info("Clicked NEXT button to confirm booking")
+                    logging.info("Clicked NEXT button")
                     break
                 except:
                     continue
+            
+            # Click on member (Samuel Wang or whoever is shown)
+            logging.info("Looking for member to select...")
+            time.sleep(2)  # Wait for member list to load
+            
+            member_clicked = False
+            
+            # Try using JavaScript to click the clickable div inside app-racquet-sports-person
+            try:
+                member_clicked = self.page.evaluate("""
+                    () => {
+                        const person = document.querySelector('app-racquet-sports-person');
+                        if (person) {
+                            const clickableDiv = person.querySelector('div.clickable');
+                            if (clickableDiv) {
+                                clickableDiv.click();
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                """)
+                
+                if member_clicked:
+                    logging.info("Clicked member using JavaScript")
+                    time.sleep(2)
+                else:
+                    logging.warning("Could not find member with JavaScript")
+            except Exception as e:
+                logging.warning(f"JavaScript click failed: {e}")
+            
+            # Fallback to CSS selectors
+            if not member_clicked:
+                member_selectors = [
+                    "app-racquet-sports-person .clickable",
+                    ".my-1.clickable",
+                    "div.clickable",
+                    "app-racquet-sports-person div.my-1"
+                ]
+                
+                for selector in member_selectors:
+                    try:
+                        self.page.wait_for_selector(selector, timeout=5000).click()
+                        time.sleep(2)
+                        logging.info(f"Clicked member using selector: {selector}")
+                        member_clicked = True
+                        break
+                    except:
+                        continue
+            
+            if not member_clicked:
+                logging.warning("Could not click member, trying to proceed anyway")
+            else:
+                # Wait longer for CONFIRM BOOKING button to appear after selecting member
+                logging.info("Waiting for CONFIRM BOOKING button to appear...")
+                time.sleep(3)
+            
+            # Take a screenshot before attempting to click CONFIRM BOOKING
+            try:
+                self.page.screenshot(path="before_confirm_booking.png")
+                logging.info("Saved screenshot: before_confirm_booking.png")
+            except:
+                pass
+            
+            # Click CONFIRM BOOKING button - use JavaScript (most reliable)
+            logging.info("Looking for CONFIRM BOOKING button...")
+            
+            confirmed = False
+            try:
+                confirmed = self.page.evaluate("""
+                    () => {
+                        // Find button containing CONFIRM BOOKING text
+                        const buttons = Array.from(document.querySelectorAll('button'));
+                        for (const btn of buttons) {
+                            if (btn.textContent.includes('CONFIRM BOOKING')) {
+                                btn.click();
+                                return true;
+                            }
+                        }
+                        
+                        // Try finding by span text inside button
+                        const spans = Array.from(document.querySelectorAll('button span'));
+                        for (const span of spans) {
+                            if (span.textContent.includes('CONFIRM BOOKING')) {
+                                span.parentElement.click();
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                """)
+                
+                if confirmed:
+                    logging.info("Clicked CONFIRM BOOKING using JavaScript")
+                    time.sleep(2)
+                else:
+                    logging.warning("Could not find CONFIRM BOOKING with JavaScript")
+            except Exception as e:
+                logging.warning(f"JavaScript click failed: {e}")
+            
+            # Fallback to selectors
+            if not confirmed:
+                confirm_selectors = [
+                    "//button[.//span[text()='CONFIRM BOOKING']]",
+                    "//button[contains(@class, 'darker-blue-bg')]//span[text()='CONFIRM BOOKING']",
+                    "button:has-text('CONFIRM BOOKING')",
+                    "//button[contains(text(), 'CONFIRM BOOKING')]",
+                    "text=CONFIRM BOOKING"
+                ]
+                
+                for selector in confirm_selectors:
+                    try:
+                        self.page.wait_for_selector(selector, timeout=5000).click()
+                        time.sleep(2)
+                        logging.info(f"Clicked CONFIRM BOOKING using selector: {selector}")
+                        confirmed = True
+                        break
+                    except Exception as e:
+                        logging.warning(f"Selector {selector} failed: {e}")
+                        continue
+            
+            if not confirmed:
+                logging.error("Could not click CONFIRM BOOKING button!")
+                self.page.screenshot(path="confirm_booking_error.png")
+                return False
             
             logging.info("Successfully booked tennis court")
             return True

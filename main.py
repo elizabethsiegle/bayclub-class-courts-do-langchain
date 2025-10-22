@@ -9,69 +9,6 @@ from config import Config
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def book_ignite_class(username, password, date=None, time_of_week="7:00", meridiem="AM", headless=False):
-    """Book an Ignite class at Bay Club for a specific date and time"""
-    try:
-        # Check if the date is too far in advance (more than 3 days)
-        if date:
-            target_date = datetime.datetime.strptime(date, "%Y-%m-%d")
-            today = datetime.datetime.now().date()
-            days_ahead = (target_date.date() - today).days
-            
-            if days_ahead > 3:
-                logging.warning(f"Cannot book classes more than 3 days in advance. Requested date is {days_ahead} days ahead.")
-                raise ValueError(f"Cannot book classes more than 3 days in advance. The requested date ({date}) is {days_ahead} days from today. Please choose a date within the next 3 days.")
-        
-        with IgniteBooking(headless=headless) as booking:
-            # Login
-            logging.info("Logging into Bay Club...")
-            booking.login(username, password)
-            
-            # Select location
-            booking.select_location()
-            
-            # Determine the day to book
-            if date:
-                # Parse the date string (format: YYYY-MM-DD)
-                target_date = datetime.datetime.strptime(date, "%Y-%m-%d")
-                target_day = target_date.weekday()
-                logging.info(f"Booking for date: {date} (day of week: {target_day})")
-            else:
-                # Use current day
-                target_day = datetime.datetime.now().weekday()
-                logging.info(f"Booking for current day (day of week: {target_day})")
-            
-            # Select the appropriate day
-            booking.select_day(target_day, logging)
-            
-            # Select Ignite class
-            logging.info(f"Looking for Ignite class at {time_of_week} {meridiem}...")
-            booking.select_ignite(target_day, time_of_week, meridiem)
-            
-            # Try to book the class
-            try:
-                logging.info("Attempting to book class...")
-                booking.book_ignite()
-                booking.confirm_ignite()
-                logging.info("Successfully booked Ignite class!")
-                return True
-            except Exception as e:
-                logging.error(f"Booking failed: {e}")
-                # Only try waitlist if we can confirm there's a waitlist option
-                try:
-                    logging.info("Checking if waitlist is available...")
-                    booking.add_to_waitlist_ignite()
-                    booking.confirm_ignite()
-                    logging.info("Successfully added to waitlist!")
-                    return True
-                except Exception as waitlist_error:
-                    logging.error(f"Waitlist also failed: {waitlist_error}")
-                    return False
-                
-    except Exception as e:
-        logging.error(f"Booking failed: {e}")
-        return False
-
 def book_any_class(username, password, class_name, date=None, time_of_week="7:00", meridiem="AM", headless=False):
     """Book any class at Bay Club for a specific date and time"""
     try:
@@ -120,7 +57,7 @@ def book_any_class(username, password, class_name, date=None, time_of_week="7:00
         logging.error(f"Booking failed: {e}")
         return False
 
-def check_ignite_class(username, password, date=None, headless=False):
+def check_all_classes(username, password, date=None, headless=False):
     """Check for available classes on a specific date (includes all class types: Ignite, Pilates, Riide, etc.)"""
     try:
         # Check if the date is too far in advance (more than 6 days)
@@ -266,7 +203,7 @@ def main():
         # Example 1: Check classes for today
         print("\n1. Checking classes for today...")
         today = datetime.datetime.now().strftime("%Y-%m-%d")
-        check_result = check_ignite_class(USERNAME, PASSWORD, today, HEADLESS)
+        check_result = check_all_classes(USERNAME, PASSWORD, today, HEADLESS)
         
         if check_result['status'] == 'success':
             class_types = check_result.get('class_types', [])
@@ -282,7 +219,7 @@ def main():
         # Example 2: Check classes for tomorrow
         print("\n2. Checking classes for tomorrow...")
         tomorrow = (datetime.datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-        check_result = check_ignite_class(USERNAME, PASSWORD, tomorrow, HEADLESS)
+        check_result = check_all_classes(USERNAME, PASSWORD, tomorrow, HEADLESS)
         
         if check_result['status'] == 'success':
             class_types = check_result.get('class_types', [])

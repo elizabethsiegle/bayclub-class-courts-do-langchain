@@ -11,7 +11,7 @@ from langchain_gradient import ChatGradient
 from config import Config
 
 # Import our booking functions
-from main import book_ignite_class, book_any_class, check_ignite_class, check_tennis_courts
+from main import book_any_class, check_all_classes, check_tennis_courts
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -117,15 +117,15 @@ def get_system_prompt():
     return """You are a helpful Bay Club booking assistant. You help users book classes at Bay Club San Francisco.
 
 You have access to these tools:
-1. check_ignite_class(username, password, date, headless=True) - Check available classes for a specific date (includes ALL class types: Ignite, Pilates, Riide, Cardio Hip Hop, Yoga, and more)
+1. check_all_classes(username, password, date, headless=True) - Check available classes for a specific date (includes ALL class types: Ignite, Pilates, Riide, Cardio Hip Hop, Yoga, and more)
 2. book_any_class(username, password, class_name, date, time, meridiem, headless=True) - Book ANY class type for a specific date and time
 
 When users ask about:
-- "Check classes for [date]" or "What classes are available on [date]" → Use check_ignite_class()
+- "Check classes for [date]" or "What classes are available on [date]" → Use check_all_classes()
 - "Book a [class name] class for [date] at [time]" → Use book_any_class() with the specific class name
 - "Book me a [time] class on [date]" → Use book_any_class() (defaults to Ignite if no class type specified)
-- "Show me available times" → Use check_ignite_class() for today or ask for a specific date
-- "What Pilates/Riide/Cardio Hip Hop classes are available?" → Use check_ignite_class()
+- "Show me available times" → Use check_all_classes() for today or ask for a specific date
+- "What Pilates/Riide/Cardio Hip Hop classes are available?" → Use check_all_classes()
 
 Supported class types: Ignite, Pilates, Riide, Cardio Hip Hop, Yoga, Spin, Barre, and more
 
@@ -354,12 +354,12 @@ Booking System Status:
 - Last Mentioned Date: {st.session_state.last_mentioned_date or 'None'}
 
 Available Tools:
-- check_ignite_class(username, password, date, headless=True)
-- book_ignite_class(username, password, date, time, meridiem, headless=True)
+- check_all_classes(username, password, date, headless=True)
+- book_any_class(username, password, class_name, date, time, meridiem, headless=True)
 
 You can use these tools by calling them directly in your response. For example:
-- "Let me check availability for today" → call check_ignite_class()
-- "I'll book that class for you" → call book_ignite_class()
+- "Let me check availability for today" → call check_all_classes()
+- "I'll book that Ignite class for you" → call book_any_class()
 
 IMPORTANT: If the user mentions a date in one message and then asks to book a class in the next message without specifying a date, use the last mentioned date from the conversation context.
 """
@@ -442,7 +442,7 @@ def check_availability_for_date(date: str) -> str:
             return "Please set your Bay Club credentials first."
         
         # Use our new function directly
-        result = check_ignite_class(
+        result = check_all_classes(
             st.session_state.user_credentials["username"],
             st.session_state.user_credentials["password"],
             date,
@@ -707,7 +707,7 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # Chat input
-if prompt := st.chat_input("Ask me about class availability or book a class..."):
+if prompt := st.chat_input("Ask me about class availability or court availability or book a class or court!"):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
     
