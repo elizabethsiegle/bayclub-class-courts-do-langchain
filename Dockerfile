@@ -33,9 +33,11 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers and dependencies using Python module syntax
-RUN python -m playwright install-deps chromium
-RUN python -m playwright install chromium
+# Install Playwright browsers with all dependencies
+RUN python -m playwright install --with-deps chromium
+
+# Verify Playwright installation
+RUN python -c "from playwright.sync_api import sync_playwright; print('Playwright installed successfully')"
 
 # Copy application code
 COPY . .
@@ -45,6 +47,7 @@ ENV BAY_CLUB_USERNAME=""
 ENV BAY_CLUB_PASSWORD=""
 ENV DIGITALOCEAN_INFERENCE_KEY=""
 ENV DEFAULT_HEADLESS=True
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
 # Expose Streamlit port
 EXPOSE 8080
