@@ -3,7 +3,7 @@
 import os
 import datetime
 import logging
-from bayclub_booking import IgniteBooking
+from bayclub_booking import BayClubBooking
 from config import Config
 
 # Set up logging
@@ -22,7 +22,7 @@ def book_any_class(username, password, class_name, date=None, time_of_week="7:00
                 logging.warning(f"Cannot book classes more than 3 days in advance. Requested date is {days_ahead} days ahead.")
                 raise ValueError(f"Cannot book classes more than 3 days in advance. The requested date ({date}) is {days_ahead} days from today. Please choose a date within the next 3 days.")
         
-        with IgniteBooking(headless=headless) as booking:
+        with BayClubBooking(headless=headless) as booking:
             # Login
             logging.info("Logging into Bay Club...")
             booking.login(username, password)
@@ -77,7 +77,7 @@ def check_all_classes(username, password, date=None, headless=False):
                     'error': f"Cannot check classes more than 6 days in advance. The requested date ({date}) is {days_ahead} days from today. Please choose a date within the next 6 days."
                 }
         
-        with IgniteBooking(headless=headless) as booking:
+        with BayClubBooking(headless=headless) as booking:
             # Login
             logging.info("Logging into Bay Club...")
             booking.login(username, password)
@@ -145,7 +145,7 @@ def check_all_classes(username, password, date=None, headless=False):
 def check_tennis_courts(username, password, date=None, club_name="San Francisco", headless=False):
     """Check available tennis courts for a specific date"""
     try:
-        with IgniteBooking(headless=headless) as booking:
+        with BayClubBooking(headless=headless) as booking:
             # Login
             logging.info("Logging into Bay Club...")
             booking.login(username, password)

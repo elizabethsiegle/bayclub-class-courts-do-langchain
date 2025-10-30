@@ -12,6 +12,7 @@ from config import Config
 
 # Import our booking functions
 from main import book_any_class, check_all_classes, check_tennis_courts
+from bayclub_booking import BayClubBooking
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -549,10 +550,10 @@ def book_tennis_court_for_time(date: str, time_slot: str) -> str:
         
         # Import the booking function
         from main import check_tennis_courts, book_any_class
-        from bayclub_booking import IgniteBooking
+        from bayclub_booking import BayClubBooking
         
         # Book the tennis court
-        with IgniteBooking(headless=True) as booking:
+        with BayClubBooking(headless=True) as booking:
             booking.login(
                 st.session_state.user_credentials["username"],
                 st.session_state.user_credentials["password"]

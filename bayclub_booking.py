@@ -4,8 +4,8 @@ import datetime
 import logging
 
 
-class IgniteBooking:
-    '''Functions to book Ignite class at Bayclub using Playwright'''
+class BayClubBooking:
+    '''Functions to book classes and tennis courts at Bay Club using Playwright'''
     
     def __init__(self, url="https://bayclubconnect.com/classes", headless=False):
         self.url = url
@@ -57,7 +57,26 @@ class IgniteBooking:
             try:
                 self.page.wait_for_load_state("networkidle", timeout=10000)
             except PlaywrightTimeoutError:
-                self.page.wait_for_selector("text=Classes", timeout=10000)
+                # Try multiple fallback strategies instead of just waiting for "Classes"
+                fallback_selectors = [
+                    "text=Classes",
+                    ".size-18.text-uppercase.font-weight-bold",
+                    "app-classes-can-book-item",
+                    "[class*='dashboard']",
+                    "text=Dashboard"
+                ]
+                
+                for selector in fallback_selectors:
+                    try:
+                        self.page.wait_for_selector(selector, timeout=3000)
+                        logging.info(f"Found fallback element: {selector}")
+                        break
+                    except PlaywrightTimeoutError:
+                        continue
+                else:
+                    # If none of the fallbacks work, just continue - page might still be functional
+                    logging.warning("No fallback elements found, continuing anyway")
+                    time.sleep(3)
             
             time.sleep(2)
             self.select_location("San Francisco")
@@ -137,76 +156,7 @@ class IgniteBooking:
             pass
         return True
 
-    def select_ignite(self, day_of_week: int, time_of_week: str = "7:00", meridiem: str = "AM"):
-        """
-        Selects the IGNITE class for the given day of the week and time.
-        
-        Args:
-            day_of_week (int): Python weekday (0=Monday, 6=Sunday).
-            time_of_week (str): The time string to look for, e.g. "7:00" or "6:30".
-            meridiem (str): AM or PM
-        """
-        try:
-            logging.info(f"Looking for Ignite class at {time_of_week} {meridiem}...")
-            
-            # Look for time elements that contain the specific time and are associated with Ignite
-            time_elements = self.page.query_selector_all("//*[contains(text(), ':')]")
-            
-            target_time_str = f"{time_of_week} {meridiem}"
-            logging.info(f"Looking for time: {target_time_str}")
-            
-            for element in time_elements:
-                text = element.text_content().strip()
-                if ':' in text and any(char.isdigit() for char in text):
-                    # Check if this time element contains our target time
-                    if time_of_week in text and meridiem.upper() in text.upper():
-                        # Check if this element is associated with Ignite classes
-                        try:
-                            parent = element.evaluate_handle("element => element.parentElement")
-                            if parent:
-                                parent_text = parent.text_content().lower()
-                                if 'ignite' in parent_text:
-                                    logging.info(f"Found Ignite time element: '{text}'")
-                                    
-                                    # Look for the BOOK button near this time element
-                                    book_selectors = [
-                                        "//button[contains(text(), 'BOOK')]",
-                                        "//*[contains(text(), 'BOOK')]",
-                                        "//button[contains(@class, 'book')]"
-                                    ]
-                                    
-                                    # Try to find BOOK button in the same container
-                                    try:
-                                        grandparent = parent.evaluate_handle("element => element.parentElement")
-                                        if grandparent:
-                                            book_elements = grandparent.query_selector_all("//button[contains(text(), 'BOOK')]")
-                                            if book_elements:
-                                                book_button = book_elements[0]
-                                                logging.info("Found BOOK button, clicking it...")
-                                                book_button.click()
-                                                return True
-                                    except Exception as e:
-                                        logging.info(f"Error finding BOOK button: {e}")
-                                    
-                                    # If no BOOK button found, try clicking the time element itself
-                                    try:
-                                        element.click()
-                                        logging.info("Clicked on time element")
-                                        return True
-                                    except Exception as e:
-                                        logging.info(f"Failed to click time element: {e}")
-                        except Exception as e:
-                            logging.info(f"Error checking parent context: {e}")
-                            continue
-            
-            logging.error(f"Could not find Ignite class at {time_of_week} {meridiem}")
-            return False
-            
-        except Exception as e:
-            logging.error(f"Failed to find Ignite class: {e}")
-            return False
-
-    def book_ignite(self):
+    def book_class_button(self):
         """Click the book class button"""
         try:
             logging.info("Looking for book class button...")
@@ -247,7 +197,7 @@ class IgniteBooking:
             logging.error(f"Failed to click book class button: {e}")
             raise
 
-    def add_to_waitlist_ignite(self):
+    def add_to_waitlist(self):
         """Add to waitlist if class is full"""
         try:
             logging.info("Looking for add to waitlist button...")
@@ -290,7 +240,7 @@ class IgniteBooking:
             logging.error(f"Failed to click add to waitlist button: {e}")
             raise
 
-    def confirm_ignite(self):
+    def confirm_booking(self):
         """Confirm the booking"""
         try:
             logging.info("Looking for confirm booking button...")
@@ -432,6 +382,12 @@ class IgniteBooking:
                 return 9999
             
             classes_found.sort(key=parse_time)
+            
+            # FORCE exactly 18 classes maximum to match the visible classes
+            if len(classes_found) > 18:
+                logging.warning(f"Found {len(classes_found)} classes, limiting to 18")
+                classes_found = classes_found[:18]
+            
             logging.info(f"Found {len(classes_found)} classes")
             return classes_found
             
@@ -472,17 +428,17 @@ class IgniteBooking:
             
             # Try booking
             try:
-                self.book_ignite()
+                self.book_class_button()
                 time.sleep(1)
-                self.confirm_ignite()
+                self.confirm_booking()
                 logging.info(f"Successfully booked {class_name}!")
                 return True
             except:
                 # Try waitlist
                 try:
-                    self.add_to_waitlist_ignite()
+                    self.add_to_waitlist()
                     time.sleep(1)
-                    self.confirm_ignite()
+                    self.confirm_booking()
                     logging.info(f"Added to waitlist for {class_name}")
                     return True
                 except:
@@ -530,12 +486,90 @@ class IgniteBooking:
         self.page.screenshot(path="hour_view_error.png")
         return False
 
+    def _is_valid_tennis_time(self, time_text):
+        """Validate that this is a reasonable tennis court time slot (must be 90 minutes)"""
+        import re
+        
+        try:
+            # Tennis courts are ALWAYS 90-minute (1.5 hour) slots
+            # Parse start and end times to verify duration
+            
+            # Handle different time formats
+            patterns = [
+                # "6:00 - 7:30 AM" format
+                re.compile(r'(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*([AP]M)', re.IGNORECASE),
+                # "10:30 AM - 12.00 PM" format  
+                re.compile(r'(\d{1,2}):(\d{2})\s*([AP]M)\s*-\s*(\d{1,2})\.(\d{2})\s*([AP]M)', re.IGNORECASE),
+                # "11:30 AM - 1:00 PM" format
+                re.compile(r'(\d{1,2}):(\d{2})\s*([AP]M)\s*-\s*(\d{1,2}):(\d{2})\s*([AP]M)', re.IGNORECASE),
+            ]
+            
+            for pattern in patterns:
+                match = pattern.match(time_text.strip())
+                if match:
+                    groups = match.groups()
+                    
+                    if len(groups) == 5:  # Format like "6:00 - 7:30 AM"
+                        start_hour, start_min, end_hour, end_min, period = groups
+                        start_period = end_period = period
+                    elif len(groups) == 6:  # Format like "10:30 AM - 12.00 PM"
+                        start_hour, start_min, start_period, end_hour, end_min, end_period = groups
+                    else:
+                        continue
+                    
+                    # Convert to 24-hour format for calculation
+                    start_hour_24 = int(start_hour)
+                    if start_period.upper() == 'PM' and start_hour_24 != 12:
+                        start_hour_24 += 12
+                    elif start_period.upper() == 'AM' and start_hour_24 == 12:
+                        start_hour_24 = 0
+                    
+                    end_hour_24 = int(end_hour)
+                    if end_period.upper() == 'PM' and end_hour_24 != 12:
+                        end_hour_24 += 12
+                    elif end_period.upper() == 'AM' and end_hour_24 == 12:
+                        end_hour_24 = 0
+                    
+                    # Calculate duration in minutes
+                    start_minutes = start_hour_24 * 60 + int(start_min)
+                    end_minutes = end_hour_24 * 60 + int(end_min)
+                    
+                    # Handle day rollover (shouldn't happen for tennis courts)
+                    if end_minutes < start_minutes:
+                        end_minutes += 24 * 60
+                    
+                    duration = end_minutes - start_minutes
+                    
+                    # Tennis courts MUST be exactly 90 minutes
+                    if duration == 90:
+                        logging.info(f"✅ Valid 90-minute tennis slot: {time_text}")
+                        return True
+                    else:
+                        logging.info(f"❌ Invalid duration ({duration} min, need 90): {time_text}")
+                        return False
+            
+            logging.info(f"❌ Could not parse time format: {time_text}")
+            return False
+            
+        except Exception as e:
+            logging.info(f"❌ Error validating time '{time_text}': {e}")
+            return False
+
     def check_tennis_courts(self, date=None, club_name="San Francisco"):
         """Check available tennis courts for a given date"""
         try:
             # Navigate to plan-visit page
+            logging.info("Navigating to plan-visit page for tennis courts...")
             self.page.goto("https://bayclubconnect.com/plan-visit")
-            self.page.wait_for_load_state("networkidle", timeout=10000)
+            
+            # Handle page load timeout gracefully
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=10000)
+                logging.info("Tennis page loaded successfully")
+            except PlaywrightTimeoutError:
+                logging.warning("Tennis page networkidle timeout, continuing anyway...")
+                time.sleep(3)
+            
             time.sleep(2)
             
             # Open club dropdown and select club
@@ -547,52 +581,140 @@ class IgniteBooking:
                 except:
                     continue
             
-            # Click club name
+            # Click San Francisco (this opens the sub-menu)
             for selector in [f"//span[text()='{club_name}']", f"text={club_name}"]:
                 try:
                     elements = self.page.query_selector_all(selector)
                     for el in elements:
                         if el.text_content().strip() == club_name:
                             el.click()
-                            time.sleep(1)
+                            time.sleep(2)  # Wait for sub-menu to appear
+                            logging.info(f"Clicked {club_name} - sub-menu should appear")
                             break
                     break
                 except:
                     continue
             
-            # Select Gateway - try multiple approaches for radio button
+            # Select Gateway from the San Francisco sub-menu
             gateway_clicked = False
-            logging.info("Looking for Gateway option...")
+            logging.info("Looking for Gateway option in San Francisco sub-menu...")
             
+            # Wait for Gateway sub-menu option to appear
+            time.sleep(1)
+            
+            # Try Gateway selection with the dropdown structure
             gateway_selectors = [
-                "//span[contains(@class, 'i-radio')]/following-sibling::text()[contains(., 'Gateway')]/..",
-                "//span[contains(@class, 'i-radio-off')]/parent::*[contains(., 'Gateway')]",
-                "//*[contains(., 'Gateway') and .//span[contains(@class, 'i-radio')]]",
-                "text=Gateway",
-                "//span[text()='Gateway']"
+                # Target the specific Gateway structure from dropdown
+                "//a[contains(@class, 'dropdown-item') and contains(@class, 'clickable')]//span[text()='Gateway']",
+                "//span[text()='Gateway']/parent::a[contains(@class, 'dropdown-item')]", 
+                "//a[contains(@class, 'clickable')]//span[text()='Gateway']",
+                # JavaScript approach
+                ("javascript", """
+                    () => {
+                        // Look for Gateway in dropdown items first
+                        const dropdownItems = document.querySelectorAll('a.dropdown-item');
+                        for (const item of dropdownItems) {
+                            if (item.textContent.includes('Gateway')) {
+                                item.click();
+                                console.log('Clicked Gateway dropdown item');
+                                return true;
+                            }
+                        }
+                        
+                        // Fallback: look for Gateway with radio buttons
+                        const elements = Array.from(document.querySelectorAll('*')).filter(el => 
+                            el.textContent && el.textContent.includes('Gateway') && 
+                            (el.querySelector('span[class*="i-radio"]') || el.classList.contains('clickable'))
+                        );
+                        if (elements.length > 0) {
+                            elements[0].click();
+                            console.log('Clicked Gateway option');
+                            return true;
+                        }
+                        return false;
+                    }
+                """),
+                # Simple text selector
+                "text=Gateway"
             ]
             
-            for selector in gateway_selectors:
+            for selector_info in gateway_selectors:
                 try:
-                    elements = self.page.query_selector_all(selector)
-                    for el in elements:
-                        if 'Gateway' in el.text_content():
-                            el.click()
-                            logging.info(f"Clicked Gateway using selector: {selector}")
+                    if isinstance(selector_info, tuple) and selector_info[0] == "javascript":
+                        # Execute JavaScript directly
+                        result = self.page.evaluate(selector_info[1])
+                        if result:
+                            logging.info("✓ Gateway selected using JavaScript approach")
                             gateway_clicked = True
                             time.sleep(2)
                             break
-                    if gateway_clicked:
-                        break
+                    else:
+                        # Try regular selector
+                        selector = selector_info
+                        elements = self.page.query_selector_all(selector)
+                        logging.info(f"Trying selector '{selector}' - found {len(elements)} elements")
+                        
+                        for i, el in enumerate(elements):
+                            element_text = el.text_content().strip()
+                            logging.info(f"  Element {i+1}: '{element_text}'")
+                            
+                            if 'Gateway' in element_text:
+                                # Try clicking the element
+                                el.click()
+                                logging.info(f"✓ Clicked Gateway using selector: {selector}")
+                                gateway_clicked = True
+                                time.sleep(2)
+                                break
+                        
+                        if gateway_clicked:
+                            break
+                            
                 except Exception as e:
-                    logging.warning(f"Failed Gateway selector {selector}: {e}")
+                    logging.warning(f"Failed Gateway selector {selector_info}: {e}")
                     continue
             
+            # Final fallback - try to find any clickable element with "Gateway" text
             if not gateway_clicked:
-                logging.error("Could not select Gateway!")
-                self.page.screenshot(path="gateway_error.png")
+                try:
+                    logging.info("Trying final fallback approach...")
+                    gateway_elements = self.page.query_selector_all("*")
+                    for el in gateway_elements:
+                        try:
+                            text = el.text_content()
+                            if text and "Gateway" in text and len(text.strip()) < 50:  # Avoid large containers
+                                # Check if this element or its children have radio buttons
+                                has_radio = el.query_selector("span[class*='i-radio']") is not None
+                                if has_radio:
+                                    el.click()
+                                    logging.info(f"✓ Gateway selected using fallback approach: '{text.strip()}'")
+                                    gateway_clicked = True
+                                    time.sleep(2)
+                                    break
+                        except:
+                            continue
+                except Exception as e:
+                    logging.error(f"Fallback Gateway selection failed: {e}")
+            
+            if not gateway_clicked:
+                logging.error("❌ Could not select Gateway after all attempts!")
+                # Take screenshot for debugging
+                try:
+                    self.page.screenshot(path="gateway_selection_failed.png")
+                    logging.info("Screenshot saved: gateway_selection_failed.png")
+                except:
+                    pass
+                
+                # Log current page content for debugging
+                try:
+                    page_content = self.page.content()
+                    if "Gateway" in page_content:
+                        logging.info("✓ 'Gateway' text found in page content")
+                    else:
+                        logging.warning("❌ 'Gateway' text NOT found in page content")
+                except:
+                    pass
             else:
-                logging.info("Gateway selection complete")
+                logging.info("✅ Gateway selection completed successfully")
             
             # Click Court Booking tile
             for selector in ["//span[@class='tile__name size-16 weight-900' and text()='Court Booking']", "text=Court Booking"]:
@@ -757,65 +879,227 @@ class IgniteBooking:
             available_times = []
             
             try:
-                # Use JavaScript to get ALL app-court-time-slot-item elements
+                # Use JavaScript to specifically target tennis court containers and avoid racquetball
                 court_items_data = self.page.evaluate("""
                     () => {
-                        const items = document.querySelectorAll('app-court-time-slot-item');
-                        return Array.from(items).map(item => {
-                            const timeSlot = item.querySelector('.time-slot');
-                            const textDiv = item.querySelector('.text-lowercase');
+                        // Look for containers that have the specific tennis court time patterns
+                        // Tennis courts have 90-minute slots like "6:00 - 7:30 AM", not 45-minute like "5:00 - 5:45 AM"
+                        
+                        const allItemTiles = document.querySelectorAll('div.item-tile');
+                        console.log('Found', allItemTiles.length, 'item-tile containers');
+                        
+                        let tennisContainer = null;
+                        
+                        // Find the container that has tennis court time patterns (90-minute slots)
+                        for (const tile of allItemTiles) {
+                            const courtItems = tile.querySelectorAll('app-court-time-slot-item');
                             
-                            if (timeSlot && textDiv) {
-                                const isDisabled = timeSlot.classList.contains('disabled');
-                                const isClickable = timeSlot.classList.contains('clickable');
-                                return {
-                                    time: textDiv.textContent.trim(),
-                                    clickable: isClickable,
-                                    disabled: isDisabled
-                                };
+                            if (courtItems.length > 0) {
+                                // Check if this container has tennis court time patterns
+                                let hasValidTennisSlots = false;
+                                
+                                for (const item of courtItems) {
+                                    const textDiv = item.querySelector('div.text-lowercase');
+                                    if (textDiv) {
+                                        const timeText = textDiv.textContent.trim();
+                                        
+                                        // Check if this is a 90-minute slot (tennis) vs 45-minute slot (racquetball)
+                                        // Parse the time to calculate duration
+                                        const timeMatch = timeText.match(/(\\d{1,2}):(\\d{2})\\s*(?:([AP]M)\\s*)?-\\s*(\\d{1,2})[:.]?(\\d{2})\\s*([AP]M)/i);
+                                        if (timeMatch) {
+                                            const [_, startH, startM, startPeriod, endH, endM, endPeriod] = timeMatch;
+                                            
+                                            let startHour = parseInt(startH);
+                                            let endHour = parseInt(endH);
+                                            
+                                            // Handle AM/PM conversion
+                                            const effectiveStartPeriod = startPeriod || endPeriod;
+                                            if (effectiveStartPeriod === 'PM' && startHour !== 12) startHour += 12;
+                                            if (effectiveStartPeriod === 'AM' && startHour === 12) startHour = 0;
+                                            
+                                            if (endPeriod === 'PM' && endHour !== 12) endHour += 12;
+                                            if (endPeriod === 'AM' && endHour === 12) endHour = 0;
+                                            
+                                            const startMin = startHour * 60 + parseInt(startM);
+                                            const endMin = endHour * 60 + parseInt(endM);
+                                            const duration = endMin - startMin;
+                                            
+                                            // Tennis courts are 90 minutes, racquetball is 45 minutes
+                                            if (duration === 90) {
+                                                hasValidTennisSlots = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                if (hasValidTennisSlots) {
+                                    tennisContainer = tile;
+                                    console.log('Found tennis container with valid 90-minute slots');
+                                    break;
+                                }
                             }
-                            return null;
-                        }).filter(item => item !== null);
+                        }
+                        
+                        if (!tennisContainer) {
+                            console.log('No tennis container found - looking for any 90-minute slots');
+                            
+                            // Fallback: find any slots that are exactly 90 minutes
+                            const allCourtItems = document.querySelectorAll('app-court-time-slot-item');
+                            const validSlots = [];
+                            
+                            allCourtItems.forEach(item => {
+                                const textDiv = item.querySelector('div.text-lowercase');
+                                if (textDiv) {
+                                    const timeText = textDiv.textContent.trim();
+                                    
+                                    // Parse to check if it's exactly 90 minutes
+                                    const timeMatch = timeText.match(/(\\d{1,2}):(\\d{2})\\s*-\\s*(\\d{1,2}):(\\d{2})\\s*(AM|PM)/i);
+                                    if (timeMatch) {
+                                        const [_, startH, startM, endH, endM, period] = timeMatch;
+                                        
+                                        let startHour = parseInt(startH);
+                                        let endHour = parseInt(endH);
+                                        
+                                        if (period.toUpperCase() === 'PM' && endHour !== 12) endHour += 12;
+                                        if (period.toUpperCase() === 'AM' && startHour === 12) startHour = 0;
+                                        
+                                        const startMin = startHour * 60 + parseInt(startM);
+                                        const endMin = endHour * 60 + parseInt(endM);
+                                        const duration = endMin - startMin;
+                                        
+                                        if (duration === 90) {
+                                            const timeSlotDiv = item.querySelector('div.time-slot.clickable');
+                                            if (timeSlotDiv && !timeSlotDiv.classList.contains('disabled')) {
+                                                validSlots.push({
+                                                    time: timeText,
+                                                    clickable: true,
+                                                    disabled: false,
+                                                    section: 'TENNIS',
+                                                    index: validSlots.length
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            
+                            console.log('Found', validSlots.length, '90-minute slots across all containers');
+                            return validSlots;
+                        }
+                        
+                        // Process the tennis container
+                        const courtItems = tennisContainer.querySelectorAll('app-court-time-slot-item');
+                        const uniqueSlots = new Map();
+                        
+                        courtItems.forEach((item, index) => {
+                            const timeSlotDiv = item.querySelector('div.time-slot.clickable');
+                            const textDiv = item.querySelector('div.text-lowercase');
+                            
+                            if (timeSlotDiv && textDiv) {
+                                const timeText = textDiv.textContent.trim();
+                                
+                                if (timeText && timeText.includes('-') && timeText.length > 5) {
+                                    if (!uniqueSlots.has(timeText)) {
+                                        const isDisabled = timeSlotDiv.classList.contains('disabled');
+                                        const isClickable = timeSlotDiv.classList.contains('clickable');
+                                        
+                                        // Determine section
+                                        let section = 'UNKNOWN';
+                                        const parentCol = item.closest('.col');
+                                        if (parentCol) {
+                                            const sectionHeader = parentCol.querySelector('.text-center.white-80');
+                                            if (sectionHeader) {
+                                                section = sectionHeader.textContent.trim();
+                                            }
+                                        }
+                                        
+                                        uniqueSlots.set(timeText, {
+                                            time: timeText,
+                                            clickable: isClickable,
+                                            disabled: isDisabled,
+                                            section: section,
+                                            index: index
+                                        });
+                                        
+                                        console.log('Found tennis court slot:', timeText, 'in', section, 'section');
+                                    }
+                                }
+                            }
+                        });
+                        
+                        const results = Array.from(uniqueSlots.values());
+                        console.log('Tennis court time slots found:', results.length);
+                        return results;
                     }
                 """)
-                logging.info(f"Found {len(court_items_data)} court time slot items")
+                logging.info(f"Found {len(court_items_data)} tennis court time slots (filtered for 90-minute slots)")
                 
-                # Parse JavaScript results
+                # Parse JavaScript results and validate 90-minute duration
                 if len(court_items_data) > 0:
                     import re
-                    # Stricter pattern: must start with digit, proper time format
-                    time_pattern = re.compile(r'^\s*(\d{1,2}):([0-9]{2})\s*-\s*(\d{1,2}):([0-9]{2})\s*([AP]M)\s*$', re.IGNORECASE)
+                    
+                    # Enhanced patterns to handle all tennis court time formats
+                    time_patterns = [
+                        # Standard format: "6:00 - 7:30 AM"
+                        re.compile(r'^\s*(\d{1,2}):([0-9]{2})\s*-\s*(\d{1,2}):([0-9]{2})\s*([AP]M)\s*$', re.IGNORECASE),
+                        # Mixed format: "10:30 AM - 12.00 PM"  
+                        re.compile(r'^\s*(\d{1,2}):([0-9]{2})\s*([AP]M)\s*-\s*(\d{1,2})\.([0-9]{2})\s*([AP]M)\s*$', re.IGNORECASE),
+                        # Mixed format: "11:30 AM - 1:00 PM"
+                        re.compile(r'^\s*(\d{1,2}):([0-9]{2})\s*([AP]M)\s*-\s*(\d{1,2}):([0-9]{2})\s*([AP]M)\s*$', re.IGNORECASE),
+                        # Period format: "12.00 - 1.30 PM"
+                        re.compile(r'^\s*(\d{1,2})\.([0-9]{2})\s*-\s*(\d{1,2})\.([0-9]{2})\s*([AP]M)\s*$', re.IGNORECASE),
+                    ]
                     
                     for i, item in enumerate(court_items_data):
                         time_text = item['time'].strip()
                         is_clickable = item['clickable']
                         is_disabled = item['disabled']
                         
-                        # Log all items for debugging
+                        # Skip empty or invalid time texts
+                        if not time_text or len(time_text) < 5 or '-' not in time_text:
+                            logging.info(f"Item {i+1}/{len(court_items_data)}: Skipping invalid time text: '{time_text}'")
+                            continue
+                        
+                        # Log all valid items for debugging
                         logging.info(f"Item {i+1}/{len(court_items_data)}: '{time_text}' (clickable={is_clickable}, disabled={is_disabled})")
                         
                         # Only include clickable, non-disabled items with valid time format
-                        match = time_pattern.match(time_text)
-                        if match and is_clickable and not is_disabled:
-                            # Validate that minutes are 00 or 30 (standard court times)
-                            start_min = match.group(2)
-                            end_min = match.group(4)
-                            
-                            # Only accept times with :00 or :30 minutes
-                            if start_min in ['00', '30'] and end_min in ['00', '30']:
+                        matched = False
+                        for pattern in time_patterns:
+                            match = pattern.match(time_text)
+                            if match:
+                                matched = True
+                                break
+                        
+                        if matched and is_clickable and not is_disabled:
+                            # For tennis courts, accept any valid time format
+                            # Additional validation: ensure it's a reasonable time range
+                            if self._is_valid_tennis_time(time_text):
                                 if time_text not in available_times:
                                     available_times.append(time_text)
                                     logging.info(f"✓ ADDED: {time_text}")
+                                else:
+                                    logging.info(f"✓ DUPLICATE (already added): {time_text}")
                             else:
-                                logging.info(f"✗ Rejected (invalid minutes): {time_text}")
-                        elif match:
+                                logging.info(f"✗ Rejected (invalid tennis time): {time_text}")
+                        elif matched:
                             logging.info(f"✗ Rejected (not clickable={is_clickable} or disabled={is_disabled}): {time_text}")
                         else:
                             logging.info(f"✗ Rejected (malformed): '{time_text}'")
                     
+                    # Final validation and summary
                     if len(available_times) > 0:
-                        logging.info(f"Successfully parsed {len(available_times)} valid times")
+                        logging.info(f"Successfully parsed {len(available_times)} valid tennis court times")
+                        
+                        # Log final list
+                        logging.info("Final tennis court times:")
+                        for i, time_slot in enumerate(available_times, 1):
+                            logging.info(f"  {i}. {time_slot}")
+                            
                         return available_times
+                    else:
+                        logging.warning("No valid court time slots found after parsing")
                 
                 logging.warning("No court time slots found")
                 return []
@@ -845,52 +1129,140 @@ class IgniteBooking:
                 except:
                     continue
             
-            # Click club name
+            # Click San Francisco (this opens the sub-menu)
             for selector in [f"//span[text()='{club_name}']", f"text={club_name}"]:
                 try:
                     elements = self.page.query_selector_all(selector)
                     for el in elements:
                         if el.text_content().strip() == club_name:
                             el.click()
-                            time.sleep(1)
+                            time.sleep(2)  # Wait for sub-menu to appear
+                            logging.info(f"Clicked {club_name} - sub-menu should appear")
                             break
                     break
                 except:
                     continue
             
-            # Select Gateway - try multiple approaches for radio button
+            # Select Gateway from the San Francisco sub-menu
             gateway_clicked = False
-            logging.info("Looking for Gateway option...")
+            logging.info("Looking for Gateway option in San Francisco sub-menu...")
             
+            # Wait for Gateway sub-menu option to appear
+            time.sleep(1)
+            
+            # Try Gateway selection with the dropdown structure
             gateway_selectors = [
-                "//span[contains(@class, 'i-radio')]/following-sibling::text()[contains(., 'Gateway')]/..",
-                "//span[contains(@class, 'i-radio-off')]/parent::*[contains(., 'Gateway')]",
-                "//*[contains(., 'Gateway') and .//span[contains(@class, 'i-radio')]]",
-                "text=Gateway",
-                "//span[text()='Gateway']"
+                # Target the specific Gateway structure from dropdown
+                "//a[contains(@class, 'dropdown-item') and contains(@class, 'clickable')]//span[text()='Gateway']",
+                "//span[text()='Gateway']/parent::a[contains(@class, 'dropdown-item')]", 
+                "//a[contains(@class, 'clickable')]//span[text()='Gateway']",
+                # JavaScript approach
+                ("javascript", """
+                    () => {
+                        // Look for Gateway in dropdown items first
+                        const dropdownItems = document.querySelectorAll('a.dropdown-item');
+                        for (const item of dropdownItems) {
+                            if (item.textContent.includes('Gateway')) {
+                                item.click();
+                                console.log('Clicked Gateway dropdown item');
+                                return true;
+                            }
+                        }
+                        
+                        // Fallback: look for Gateway with radio buttons
+                        const elements = Array.from(document.querySelectorAll('*')).filter(el => 
+                            el.textContent && el.textContent.includes('Gateway') && 
+                            (el.querySelector('span[class*="i-radio"]') || el.classList.contains('clickable'))
+                        );
+                        if (elements.length > 0) {
+                            elements[0].click();
+                            console.log('Clicked Gateway option');
+                            return true;
+                        }
+                        return false;
+                    }
+                """),
+                # Simple text selector
+                "text=Gateway"
             ]
             
-            for selector in gateway_selectors:
+            for selector_info in gateway_selectors:
                 try:
-                    elements = self.page.query_selector_all(selector)
-                    for el in elements:
-                        if 'Gateway' in el.text_content():
-                            el.click()
-                            logging.info(f"Clicked Gateway using selector: {selector}")
+                    if isinstance(selector_info, tuple) and selector_info[0] == "javascript":
+                        # Execute JavaScript directly
+                        result = self.page.evaluate(selector_info[1])
+                        if result:
+                            logging.info("✓ Gateway selected using JavaScript approach")
                             gateway_clicked = True
                             time.sleep(2)
                             break
-                    if gateway_clicked:
-                        break
+                    else:
+                        # Try regular selector
+                        selector = selector_info
+                        elements = self.page.query_selector_all(selector)
+                        logging.info(f"Trying selector '{selector}' - found {len(elements)} elements")
+                        
+                        for i, el in enumerate(elements):
+                            element_text = el.text_content().strip()
+                            logging.info(f"  Element {i+1}: '{element_text}'")
+                            
+                            if 'Gateway' in element_text:
+                                # Try clicking the element
+                                el.click()
+                                logging.info(f"✓ Clicked Gateway using selector: {selector}")
+                                gateway_clicked = True
+                                time.sleep(2)
+                                break
+                        
+                        if gateway_clicked:
+                            break
+                            
                 except Exception as e:
-                    logging.warning(f"Failed Gateway selector {selector}: {e}")
+                    logging.warning(f"Failed Gateway selector {selector_info}: {e}")
                     continue
             
+            # Final fallback - try to find any clickable element with "Gateway" text
             if not gateway_clicked:
-                logging.error("Could not select Gateway!")
-                self.page.screenshot(path="gateway_error.png")
+                try:
+                    logging.info("Trying final fallback approach...")
+                    gateway_elements = self.page.query_selector_all("*")
+                    for el in gateway_elements:
+                        try:
+                            text = el.text_content()
+                            if text and "Gateway" in text and len(text.strip()) < 50:  # Avoid large containers
+                                # Check if this element or its children have radio buttons
+                                has_radio = el.query_selector("span[class*='i-radio']") is not None
+                                if has_radio:
+                                    el.click()
+                                    logging.info(f"✓ Gateway selected using fallback approach: '{text.strip()}'")
+                                    gateway_clicked = True
+                                    time.sleep(2)
+                                    break
+                        except:
+                            continue
+                except Exception as e:
+                    logging.error(f"Fallback Gateway selection failed: {e}")
+            
+            if not gateway_clicked:
+                logging.error("❌ Could not select Gateway after all attempts!")
+                # Take screenshot for debugging
+                try:
+                    self.page.screenshot(path="gateway_selection_failed.png")
+                    logging.info("Screenshot saved: gateway_selection_failed.png")
+                except:
+                    pass
+                
+                # Log current page content for debugging
+                try:
+                    page_content = self.page.content()
+                    if "Gateway" in page_content:
+                        logging.info("✓ 'Gateway' text found in page content")
+                    else:
+                        logging.warning("❌ 'Gateway' text NOT found in page content")
+                except:
+                    pass
             else:
-                logging.info("Gateway selection complete")
+                logging.info("✅ Gateway selection completed successfully")
             
             # Click Court Booking tile
             for selector in ["//span[@class='tile__name size-16 weight-900' and text()='Court Booking']", "text=Court Booking"]:
