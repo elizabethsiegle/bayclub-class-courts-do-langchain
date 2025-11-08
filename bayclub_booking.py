@@ -26,7 +26,7 @@ class BayClubBooking:
             user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         )
         self.page = self.context.new_page()
-        self.page.goto(self.url)
+        self.page.goto(self.url, timeout=10000)  # Faster initial load
         return self
         
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -36,26 +36,24 @@ class BayClubBooking:
             self.playwright.stop()
 
     def login(self, user_name='user_name', user_password='password'):
-        """Login to Bay Club"""
+        """Login to Bay Club - Optimized for speed"""
         try:
-            self.page.wait_for_selector("#username", timeout=15000).fill(user_name)
-            self.page.wait_for_selector("#password", timeout=15000).fill(user_password)
+            # Fast login with reduced timeouts
+            self.page.wait_for_selector("#username", timeout=5000).fill(user_name)
+            self.page.wait_for_selector("#password", timeout=5000).fill(user_password)
             
-            login_selectors = [
-                "xpath=/html/body/app-root/div/app-login/div/app-login-connect/div[1]/div/div/div/form/button",
-                "button[type='submit']",
-                "button:has-text('Login')"
-            ]
-            
-            for selector in login_selectors:
-                try:
-                    self.page.wait_for_selector(selector, timeout=5000).click()
-                    break
-                except PlaywrightTimeoutError:
-                    continue
-            
+            # Use the working login button selector
             try:
-                self.page.wait_for_load_state("networkidle", timeout=10000)
+                self.page.wait_for_selector("button[type='submit']", timeout=5000).click()
+            except:
+                try:
+                    self.page.wait_for_selector("xpath=/html/body/app-root/div/app-login/div/app-login-connect/div[1]/div/div/div/form/button", timeout=5000).click()
+                except:
+                    self.page.wait_for_selector("button:has-text('Login')", timeout=5000).click()
+            
+            # Reduced networkidle timeout  
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
             except PlaywrightTimeoutError:
                 # Try multiple fallback strategies instead of just waiting for "Classes"
                 fallback_selectors = [
@@ -245,18 +243,10 @@ class BayClubBooking:
         try:
             logging.info("Looking for confirm booking button...")
             
-            # Try multiple selectors for the confirm button
+            # Use working selectors (optimized for speed)
             confirm_selectors = [
-                "//button[@class='btn darker-blue-bg font-weight-bold mx-2 py-2 text-uppercase white']//span[text()='CONFIRM BOOKING']",
-                "//button[contains(@class, 'darker-blue-bg')]//span[text()='CONFIRM BOOKING']",
-                "//button[contains(@class, 'btn') and contains(@class, 'darker-blue-bg')]//span[text()='CONFIRM BOOKING']",
-                "//span[text()='CONFIRM BOOKING']",
-                "button:has-text('CONFIRM BOOKING')",
-                "//button[contains(text(), 'CONFIRM BOOKING')]",
                 "text=CONFIRM BOOKING",
-                "//button[contains(@class, 'btn') and contains(text(), 'CONFIRM')]",
-                "//button[contains(@class, 'darker-blue-bg')]",
-                "//button[contains(@class, 'btn') and contains(@class, 'darker-blue-bg')]"
+                "//span[text()='CONFIRM BOOKING']"
             ]
             
             confirm_button = None
@@ -564,16 +554,16 @@ class BayClubBooking:
             
             # Handle page load timeout gracefully
             try:
-                self.page.wait_for_load_state("networkidle", timeout=10000)
+                self.page.wait_for_load_state("networkidle", timeout=3000)  # Reduced timeout
                 logging.info("Tennis page loaded successfully")
             except PlaywrightTimeoutError:
                 logging.warning("Tennis page networkidle timeout, continuing anyway...")
-                time.sleep(3)
+                time.sleep(1)  # Reduced wait
             
             time.sleep(2)
             
-            # Open club dropdown and select club
-            for selector in ["app-input-select input.form-control", "input#input_select", ".form-control.clickable"]:
+            # Open club dropdown and select club - optimized selector order
+            for selector in ["app-input-select input.form-control"]:
                 try:
                     self.page.wait_for_selector(selector, timeout=5000).click()
                     time.sleep(1)
@@ -801,13 +791,13 @@ class BayClubBooking:
                         continue
                 
                 if clicked:
-                    # Wait longer for the date change to trigger content reload
+                    # Wait for the date change to trigger content reload
                     logging.info("Waiting for date change to complete...")
-                    time.sleep(5)  # Increased wait time
+                    time.sleep(2)  # Reduced wait time for speed
                     
                     # Wait for network activity after date change
                     try:
-                        self.page.wait_for_load_state("networkidle", timeout=15000)
+                        self.page.wait_for_load_state("networkidle", timeout=5000)
                         logging.info("Network settled after date selection")
                     except:
                         logging.warning("Network didn't settle, continuing anyway")
@@ -825,7 +815,7 @@ class BayClubBooking:
                 
                 # Approach 1: Wait for app-court-time-slot-item
                 try:
-                    self.page.wait_for_selector("app-court-time-slot-item", timeout=15000)
+                    self.page.wait_for_selector("app-court-time-slot-item", timeout=5000)
                     logging.info("Court time slot items appeared")
                     slots_found = True
                 except Exception as e1:
@@ -833,7 +823,7 @@ class BayClubBooking:
                     
                     # Approach 2: Wait for .time-slot with clickable class
                     try:
-                        self.page.wait_for_selector(".time-slot.clickable", timeout=15000)
+                        self.page.wait_for_selector(".time-slot.clickable", timeout=5000)
                         logging.info("Clickable time slot divs appeared")
                         slots_found = True
                     except Exception as e2:
@@ -841,7 +831,7 @@ class BayClubBooking:
                         
                         # Approach 3: Just wait for any .time-slot
                         try:
-                            self.page.wait_for_selector(".time-slot", timeout=15000)
+                            self.page.wait_for_selector(".time-slot", timeout=3000)
                             logging.info("Time slot divs appeared")
                             slots_found = True
                         except Exception as e3:
@@ -849,7 +839,7 @@ class BayClubBooking:
                             
                             # Approach 4: Look for the item-tile container
                             try:
-                                self.page.wait_for_selector(".item-tile", timeout=15000)
+                                self.page.wait_for_selector(".item-tile", timeout=3000)
                                 logging.info("Item tile container appeared")
                                 slots_found = True
                             except Exception as e4:
@@ -857,7 +847,7 @@ class BayClubBooking:
                 
                 # Wait for text-lowercase divs with actual time content
                 try:
-                    self.page.wait_for_selector(".text-lowercase:has-text('AM'), .text-lowercase:has-text('PM')", timeout=10000)
+                    self.page.wait_for_selector(".text-lowercase:has-text('AM'), .text-lowercase:has-text('PM')", timeout=3000)
                     logging.info("Text-lowercase divs with time content appeared")
                 except:
                     logging.warning("Could not find text-lowercase with AM/PM")
@@ -879,7 +869,7 @@ class BayClubBooking:
             available_times = []
             
             try:
-                # Use JavaScript to specifically target tennis court containers and avoid racquetball
+                # Use JavaScript to specifically target tennis court containers
                 court_items_data = self.page.evaluate("""
                     () => {
                         // Look for containers that have the specific tennis court time patterns
@@ -1446,13 +1436,10 @@ class BayClubBooking:
             except Exception as e:
                 logging.warning(f"JavaScript click failed: {e}")
             
-            # Fallback to CSS selectors
+            # Use working selector first (optimized)
             if not member_clicked:
                 member_selectors = [
                     "app-racquet-sports-person .clickable",
-                    ".my-1.clickable",
-                    "div.clickable",
-                    "app-racquet-sports-person div.my-1"
                 ]
                 
                 for selector in member_selectors:
